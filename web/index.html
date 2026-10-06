@@ -71,6 +71,31 @@
                 class="hidden mt-3 px-5 py-2 rounded-xl border border-neutral-300 text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 transition">Analyze</button>
         </section>
 
+        <!-- Score -->
+        <section class="mt-4 bg-white border border-neutral-200 rounded-2xl p-5">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <p class="text-sm font-medium text-neutral-700">Score <span id="asr-loaded" class="hidden"></span></p>
+                <button id="score-btn" type="button" disabled
+                    class="px-4 py-2 rounded-xl bg-accent-500 text-white text-sm font-medium hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition">
+                    Score against piper reference
+                </button>
+            </div>
+            <p class="mt-1 text-xs text-neutral-500">
+                Synthesizes the expected sentence with piper (en_US-lessac-medium, ~63 MB first time), embeds both
+                recordings (encoder, ~355 MB first time) and combines acoustic DTW (30 %), phones (40 %) and words (30 %).
+            </p>
+            <div id="score-box" class="hidden mt-3 grid gap-2 text-sm">
+                <div class="flex items-baseline gap-3">
+                    <span class="text-4xl font-bold tracking-tight tabular-nums text-neutral-900" id="score-value">–</span>
+                    <span class="text-xs text-neutral-500">out of 100</span>
+                </div>
+                <div><span class="text-xs text-neutral-500">acoustic (mean per-step DTW)</span><span id="score-acoustic" class="ml-2 font-medium tabular-nums"></span></div>
+                <div><span class="text-xs text-neutral-500">phone error rate</span><span id="score-phones" class="ml-2 font-medium"></span></div>
+                <div><span class="text-xs text-neutral-500">word error rate</span><span id="score-words" class="ml-2 font-medium"></span></div>
+            </div>
+            <audio id="reference-preview" controls class="hidden mt-3 w-full h-10"></audio>
+        </section>
+
         <!-- Results -->
         <section class="mt-4 bg-white border border-neutral-200 rounded-2xl p-5">
             <p class="text-sm font-medium text-neutral-700">Timings</p>

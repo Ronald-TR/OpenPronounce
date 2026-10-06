@@ -46,7 +46,15 @@ export interface SpikeResult {
 export interface Session {
   info: SessionInfo;
   run: (audio: Float32Array) => Promise<SpikeResult>;
+  /** Like run, but also carries the decoder internals needed by comparePhones. */
+  runFull: (audio: Float32Array) => Promise<FullSpikeResult>;
   recognition: (audio: Float32Array) => Promise<PhoneRecognition>;
+}
+
+export interface FullSpikeResult extends SpikeResult {
+  spans: Array<[number, number]>;
+  vocabSize: number;
+  logPosteriors: Float32Array;
 }
 
 async function loadVocab(): Promise<{ vocab: string[]; blankId: number }> {
@@ -61,6 +69,14 @@ async function loadVocab(): Promise<{ vocab: string[]; blankId: number }> {
   }
   const blankId = tokenToId['<pad>'] ?? 0;
   return { vocab, blankId };
+}
+
+let vocabPromise: Promise<{ vocab: string[]; blankId: number }> | null = null;
+
+/** Recognizer vocabulary, shared by the worker and the main-thread compare. */
+export function loadRecognizerVocab(): Promise<{ vocab: string[]; blankId: number }> {
+  vocabPromise ??= loadVocab();
+  return vocabPromise;
 }
 
 export interface CreateSessionOptions {
@@ -116,6 +132,24 @@ export async function createSession(options: CreateSessionOptions = {}): Promise
     };
   };
 
+  const runFull = async (audio: Float32Array): Promise<FullSpikeResult> => {
+    const start = performance.now();
+    const { rec, timings } = await recognize(audio);
+    return {
+      phones: rec.phones,
+      confidences: rec.confidences,
+      frames: rec.frameCount,
+      audioSeconds: audio.length / 16000,
+      spans: rec.spans,
+      vocabSize: rec.vocabSize,
+      logPosteriors: rec.logPosteriors,
+      timings: {
+        ...timings,
+        totalMs: performance.now() - start,
+      },
+    };
+  };
+
   const run = async (audio: Float32Array): Promise<SpikeResult> => {
     const start = performance.now();
     const { rec, timings } = await recognize(audio);
@@ -139,6 +173,7 @@ export async function createSession(options: CreateSessionOptions = {}): Promise
   return {
     info: { modelId: MODEL_ID, device, dtype },
     run,
+    runFull,
     recognition,
   };
 }

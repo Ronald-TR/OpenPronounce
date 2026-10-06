@@ -14,6 +14,7 @@
     "bench": "tsx src/bench/node-bench.ts"
   },
   "dependencies": {
+    "@diffusionstudio/vits-web": "^1.0.3",
     "@huggingface/transformers": "^3.7.6",
     "phonemizer": "^1.2.1"
   },

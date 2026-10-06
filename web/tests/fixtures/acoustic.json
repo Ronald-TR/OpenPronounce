@@ -1,0 +1,55 @@
+{
+  "lang": "en",
+  "cases": [
+    {
+      "learner": "en-hello.wav",
+      "referenceText": "Hello, how are you?",
+      "distance": 0.0,
+      "pathLength": 90,
+      "meanPerStep": 0.0,
+      "learnerFrames": 90,
+      "referenceFrames": 90,
+      "dim": 1024
+    },
+    {
+      "learner": "en-coffee.wav",
+      "referenceText": "I would like a cup of coffee, please.",
+      "distance": 0.0,
+      "pathLength": 135,
+      "meanPerStep": 0.0,
+      "learnerFrames": 135,
+      "referenceFrames": 135,
+      "dim": 1024
+    },
+    {
+      "learner": "en-weather.wav",
+      "referenceText": "The weather is lovely today, and I am going for a walk in the park.",
+      "distance": 0.0,
+      "pathLength": 239,
+      "meanPerStep": 0.0,
+      "learnerFrames": 239,
+      "referenceFrames": 239,
+      "dim": 1024
+    },
+    {
+      "learner": "en-coffee.wav",
+      "referenceText": "I would like a cup of coffee, please. [piper voice]",
+      "distance": 757.2269,
+      "pathLength": 139,
+      "meanPerStep": 5.4477,
+      "learnerFrames": 135,
+      "referenceFrames": 106,
+      "dim": 1024
+    },
+    {
+      "learner": "en-coffee.wav",
+      "referenceText": "The weather is lovely today, and I am going for a walk in the park.",
+      "distance": 3548.6126,
+      "pathLength": 248,
+      "meanPerStep": 14.3089,
+      "learnerFrames": 135,
+      "referenceFrames": 239,
+      "dim": 1024
+    }
+  ]
+}

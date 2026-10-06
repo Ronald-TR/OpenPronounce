@@ -1,7 +1,9 @@
 # Phase 0 Spike — Phone recognition in the browser
 
-**Status update:** Phase 1 (full comparison pipeline port + component parity) is
-done — see the "Phase 1" section at the bottom. All 5 parity tests pass.
+**Status update:** Phase 1 (full comparison pipeline port + component parity)
+and Phase 2 (reference TTS, acoustic term and the complete score — all in the
+browser) are done. See the "Phase 1" and "Phase 2" sections at the bottom.
+All parity tests pass; the headless smoke test scores a fixture end-to-end.
 
 **Goal:** validate the hypothesis that OpenPronounce's core model
 (`wav2vec2-lv-60-espeak-cv-ft`, phone recognizer) can run client-side with
@@ -91,6 +93,40 @@ Notable findings:
 
 `npx vitest run` passes 5/5 (4 ungated + 1 model test gated behind
 `OPENPRONOUNCE_PARITY=1`).
+
+---
+
+# Phase 2 — Reference TTS, acoustic term and the full score (done)
+
+The complete Python score now runs client-side:
+
+| Piece | Implementation | Result |
+|---|---|---|
+| Reference TTS | piper WASM (`@diffusionstudio/vits-web`), voice `en_US-lessac-medium` (~63 MB, OPFS-cached) | synthesizes in-browser |
+| Acoustic encoder | `facebook/wav2vec2-large-960h` encoder exported to ONNX by `scripts/export_embedding_model.py`, int8 (355 MB, self-hosted under `web/public/models/`) | matches torch distances within int8 drift |
+| Acoustic DTW | ported fastdtw over 1024-dim frames | 0.02 s for 2.7 s audio in the browser |
+| Word term | `onnx-community/wav2vec2-base-960h-ONNX` q8 (~95 MB) in the worker | transcript of the fixture: "i would like a cup of coffee please" |
+| Score | `core/score.ts` port of `compute_pronunciation_score` | exact parity with Python on fixture grids |
+
+**End-to-end (headless Chromium, WASM q8):** the coffee fixture scores
+**95.05 / 100** against its own text (acoustic 7.49, 0 phone errors,
+0 word errors) — SMOKE TEST PASSED.
+
+Calibration notes (provisional until the phase-4 speechocean762 rerun):
+
+- torch fp32 on the same pairs: gTTS-vs-piper same sentence 5.45, wrong
+  sentence 14.31 — consistent with the shipped `acoustic_good=6.0` / `bad=15`.
+- int8 encoder drift pushes the browser "good" pair to ~7.5: the score band
+  still behaves (native-like reading ⇒ 95+), but phase 4 should recalibrate
+  `ACOUSTIC_GOOD` against the quantized encoder.
+
+Total browser download (English, first visit): ~318 MB (phones) + 355 MB
+(encoder) + ~95 MB (ASR) + ~63 MB (piper voice) ≈ **830 MB**, all cached by
+the browser (Cache API + OPFS) after the first load.
+
+Remaining phase-2 known gaps: the embeddings model is quantized uniformly
+(no per-channel calibration), WebGPU still untested (headless has no WebGPU),
+and mobile is out of scope for the MVP.
 
 ## How to reproduce
 
