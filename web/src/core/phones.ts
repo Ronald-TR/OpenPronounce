@@ -13,23 +13,31 @@ export const TOKEN_ALIASES: Record<string, string> = {
 };
 
 // Phones that espeak and the recognizer use interchangeably, or that no learner
-// should be penalised for (English only for the MVP).
-export const PHONE_MAP_EN: Record<string, string> = {
-  'ᵻ': 'ɪ',   // espeak's reduced /ɪ/
-  'ɐ': 'ə',   // espeak's reduced /a/ (article "a")
-  'ɔ': 'ɑ',   // cot-caught merger (American English)
-  'ɔɹ': 'oɹ', // horse-hoarse merger ("for" / "four")
-  'ɜ': 'ɚ',   // nurse vowel: espeak writes ɜː, the recognizer ɚ
-  'ɾ': 't',   // flapped t
-  'ɫ': 'l',
+// should be penalised for, per language. Length marks are always dropped. Only
+// English needs merges so far: ɔ/ɑ and ɾ/t are contrastive in French, German or Spanish.
+export const PHONE_MAP: Record<string, Record<string, string>> = {
+  en: {
+    'ᵻ': 'ɪ',   // espeak's reduced /ɪ/
+    'ɐ': 'ə',   // espeak's reduced /a/ (article "a")
+    'ɔ': 'ɑ',   // cot-caught merger (American English)
+    'ɔɹ': 'oɹ', // horse-hoarse merger ("for" / "four")
+    'ɜ': 'ɚ',   // nurse vowel: espeak writes ɜː, the recognizer ɚ
+    'ɾ': 't',   // flapped t
+    'ɫ': 'l',
+  },
+  fr: {
+    // Mid-vowel pairs whose distribution follows the "loi de position"
+    'ɛ': 'e',
+    'œ': 'ø',
+    'ə': 'ø',
+    'ɔ': 'o',
+  },
 };
 
 export function normalizePhone(phone: string, lang = 'en'): string {
   let p = phone.replace(/ː/g, '').replace(/\d/g, '');
   p = TOKEN_ALIASES[p] ?? p;
-  if (lang === 'en') {
-    p = PHONE_MAP_EN[p] ?? p;
-  }
+  p = PHONE_MAP[lang]?.[p] ?? p;
   return p;
 }
 

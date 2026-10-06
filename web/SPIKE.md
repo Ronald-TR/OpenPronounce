@@ -1,5 +1,8 @@
 # Phase 0 Spike — Phone recognition in the browser
 
+**Status update:** Phase 1 (full comparison pipeline port + component parity) is
+done — see the "Phase 1" section at the bottom. All 5 parity tests pass.
+
 **Goal:** validate the hypothesis that OpenPronounce's core model
 (`wav2vec2-lv-60-espeak-cv-ft`, phone recognizer) can run client-side with
 acceptable latency and output parity with the Python pipeline.
@@ -56,8 +59,38 @@ The 5-second-clip go criterion (≤ 15 s on WASM) is met with a wide margin
 
 1. **WebGPU** untested here (headless Chromium has no WebGPU): measure `device=webgpu` + `dtype=fp16|q4f16` manually in Chrome — expected several-times faster than WASM.
 2. Cache hit check: second page load should not re-download the model (Cache API).
-3. **Phase 1** — port the rest of `phones.py` (alignment, near-phone costs, plausibility, `compare_phones`), G2P via espeak-ng WASM (`phonemizer` npm), Levenshtein/DTW, with Python-vs-JS parity fixtures per component.
+3. **Phase 2** — TTS de referência (piper WASM), embeddings acústicos + DTW sobre vetores do modelo, score completo, recalibração de `acoustic_good`.
 4. Note: cross-origin model downloads from the HF CDN pass COEP today (fetch is CORS-mode); self-hosting on the CDN is still planned for reliability.
+
+---
+
+# Phase 1 — Comparison pipeline port (done)
+
+The rest of `phones.py` now runs in TypeScript with **component-level parity**
+against fixtures generated from the Python pipeline
+(`web/scripts/generate_fixtures_phase1.py`):
+
+| Component | TS module | Parity |
+|---|---|---|
+| Levenshtein distance + opcodes | `core/levenshtein.ts` | exact — including rapidfuzz's tie-breaking |
+| FastDTW (0.3.4, distances + paths) | `core/dtw.ts` | exact |
+| G2P via espeak-ng WASM (`phonemizer` npm) | `core/g2p.ts` | exact after normalization (6/6 fixture texts) |
+| Alignment, near-phone costs, plausibility, per-phone reports | `core/compare.ts` | exact — errors, confidences, per-phone reports |
+| `compare_phones` end-to-end | `core/compare.ts` | exact on 4 cases (incl. a mismatch case with 5 flagged words) |
+
+Notable findings:
+
+- **rapidfuzz opcode tie-breaking**: reproduced with a forward walk over the
+  suffix-distance matrix preferring **insert > replace > delete** (discovered
+  empirically against fixtures + hand-built discriminating cases).
+- The espeak-ng **WASM build differs slightly** from the system espeak (e.g.
+  `ɔː` vs `ɔ`), but after the shared normalization both converge to identical
+  phone sequences on all fixture texts.
+- G2P runs in the browser too (rendered live in the spike UI; covered by the
+  headless smoke test).
+
+`npx vitest run` passes 5/5 (4 ungated + 1 model test gated behind
+`OPENPRONOUNCE_PARITY=1`).
 
 ## How to reproduce
 

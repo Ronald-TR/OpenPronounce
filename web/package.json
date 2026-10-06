@@ -14,7 +14,8 @@
     "bench": "tsx src/bench/node-bench.ts"
   },
   "dependencies": {
-    "@huggingface/transformers": "^3.7.6"
+    "@huggingface/transformers": "^3.7.6",
+    "phonemizer": "^1.2.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",

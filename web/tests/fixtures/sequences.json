@@ -1,0 +1,374 @@
+{
+  "cases": [
+    {
+      "wav": "en-hello.wav",
+      "text": "Hello, how are you?",
+      "expected": [
+        "h",
+        "ə",
+        "l",
+        "oʊ",
+        "h",
+        "aʊ",
+        "ɑɹ",
+        "j",
+        "u"
+      ],
+      "heard": [
+        "h",
+        "ʌ",
+        "l",
+        "oʊ",
+        "h",
+        "aʊ",
+        "ɑɹ",
+        "j",
+        "u"
+      ],
+      "levenshtein_distance": 1,
+      "opcodes": [
+        [
+          "equal",
+          0,
+          1,
+          0,
+          1
+        ],
+        [
+          "replace",
+          1,
+          2,
+          1,
+          2
+        ],
+        [
+          "equal",
+          2,
+          9,
+          2,
+          9
+        ]
+      ],
+      "fastdtw_distance": 51.0,
+      "fastdtw_path_length": 20
+    },
+    {
+      "wav": "en-coffee.wav",
+      "text": "I would like a cup of coffee, please.",
+      "expected": [
+        "aɪ",
+        "w",
+        "ʊ",
+        "d",
+        "l",
+        "aɪ",
+        "k",
+        "ə",
+        "k",
+        "ʌ",
+        "p",
+        "ʌ",
+        "v",
+        "k",
+        "ɑ",
+        "f",
+        "i",
+        "p",
+        "l",
+        "i",
+        "z"
+      ],
+      "heard": [
+        "aɪ",
+        "w",
+        "ʊ",
+        "d",
+        "l",
+        "aɪ",
+        "k",
+        "ə",
+        "k",
+        "ʌ",
+        "p",
+        "ʌ",
+        "v",
+        "k",
+        "ɑ",
+        "f",
+        "i",
+        "p",
+        "l",
+        "i",
+        "z"
+      ],
+      "levenshtein_distance": 0,
+      "opcodes": [
+        [
+          "equal",
+          0,
+          21,
+          0,
+          21
+        ]
+      ],
+      "fastdtw_distance": 0.0,
+      "fastdtw_path_length": 43
+    },
+    {
+      "wav": "en-weather.wav",
+      "text": "The weather is lovely today, and I am going for a walk in the park.",
+      "expected": [
+        "ð",
+        "ə",
+        "w",
+        "ɛ",
+        "ð",
+        "ɚ",
+        "ɪ",
+        "z",
+        "l",
+        "ʌ",
+        "v",
+        "l",
+        "i",
+        "t",
+        "ə",
+        "d",
+        "eɪ",
+        "æ",
+        "n",
+        "d",
+        "aɪ",
+        "æ",
+        "m",
+        "ɡ",
+        "oʊ",
+        "ɪ",
+        "ŋ",
+        "f",
+        "oɹ",
+        "eɪ",
+        "w",
+        "ɑ",
+        "k",
+        "ɪ",
+        "n",
+        "ð",
+        "ə",
+        "p",
+        "ɑɹ",
+        "k"
+      ],
+      "heard": [
+        "ð",
+        "ə",
+        "w",
+        "ɛ",
+        "ð",
+        "ɚ",
+        "ɪ",
+        "z",
+        "l",
+        "ʌ",
+        "v",
+        "l",
+        "i",
+        "t",
+        "ə",
+        "d",
+        "eɪ",
+        "æ",
+        "n",
+        "d",
+        "aɪ",
+        "ʌ",
+        "m",
+        "ɡ",
+        "oʊ",
+        "ɪ",
+        "ŋ",
+        "f",
+        "ɚ",
+        "ə",
+        "w",
+        "ɑ",
+        "k",
+        "ɪ",
+        "n",
+        "ð",
+        "ə",
+        "p",
+        "ɑɹ",
+        "k"
+      ],
+      "levenshtein_distance": 3,
+      "opcodes": [
+        [
+          "equal",
+          0,
+          21,
+          0,
+          21
+        ],
+        [
+          "replace",
+          21,
+          22,
+          21,
+          22
+        ],
+        [
+          "equal",
+          22,
+          28,
+          22,
+          28
+        ],
+        [
+          "replace",
+          28,
+          30,
+          28,
+          30
+        ],
+        [
+          "equal",
+          30,
+          40,
+          30,
+          40
+        ]
+      ],
+      "fastdtw_distance": 618.0,
+      "fastdtw_path_length": 85
+    },
+    {
+      "wav": "en-coffee.wav",
+      "text": "I would like a cup of tea and a piece of cake.",
+      "expected": [
+        "aɪ",
+        "w",
+        "ʊ",
+        "d",
+        "l",
+        "aɪ",
+        "k",
+        "ə",
+        "k",
+        "ʌ",
+        "p",
+        "ʌ",
+        "v",
+        "t",
+        "i",
+        "æ",
+        "n",
+        "d",
+        "ə",
+        "p",
+        "i",
+        "s",
+        "ʌ",
+        "v",
+        "k",
+        "eɪ",
+        "k"
+      ],
+      "heard": [
+        "aɪ",
+        "w",
+        "ʊ",
+        "d",
+        "l",
+        "aɪ",
+        "k",
+        "ə",
+        "k",
+        "ʌ",
+        "p",
+        "ʌ",
+        "v",
+        "k",
+        "ɑ",
+        "f",
+        "i",
+        "p",
+        "l",
+        "i",
+        "z"
+      ],
+      "levenshtein_distance": 13,
+      "opcodes": [
+        [
+          "equal",
+          0,
+          13,
+          0,
+          13
+        ],
+        [
+          "replace",
+          13,
+          19,
+          13,
+          19
+        ],
+        [
+          "delete",
+          19,
+          20,
+          19,
+          19
+        ],
+        [
+          "equal",
+          20,
+          21,
+          19,
+          20
+        ],
+        [
+          "replace",
+          21,
+          22,
+          20,
+          21
+        ],
+        [
+          "delete",
+          22,
+          27,
+          21,
+          21
+        ]
+      ],
+      "fastdtw_distance": 2410.0,
+      "fastdtw_path_length": 56
+    }
+  ],
+  "small_dtw": {
+    "distance": 2.0,
+    "path": [
+      [
+        0,
+        0
+      ],
+      [
+        1,
+        0
+      ],
+      [
+        2,
+        1
+      ],
+      [
+        3,
+        2
+      ],
+      [
+        4,
+        2
+      ]
+    ]
+  }
+}

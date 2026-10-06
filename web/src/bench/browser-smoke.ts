@@ -38,6 +38,15 @@ async function main(): Promise<void> {
   const isolated = await page.evaluate('self.crossOriginIsolated');
   console.log('crossOriginIsolated:', isolated);
 
+  // G2P (espeak-ng WASM) renders expected phones right away, no model needed
+  await page.waitForFunction(
+    () => (document.getElementById('expected-phones')?.textContent ?? '').includes('/'),
+    undefined,
+    { timeout: 60_000 },
+  );
+  const g2p = await page.textContent('#expected-phones');
+  console.log('g2p phones:', g2p?.trim());
+
   console.log('loading model (wasm/q8, first run downloads ~318 MB)...');
   await page.waitForFunction(
     () => document.getElementById('status')?.textContent?.includes('model ready'),
@@ -70,7 +79,7 @@ async function main(): Promise<void> {
   await new Promise<void>((resolve) => server.httpServer?.close(() => resolve()));
 
   const heard = phones.join(' ');
-  const ok = heard.startsWith('aɪ w ʊ d l aɪ k');
+  const ok = heard.startsWith('aɪ w ʊ d l aɪ k') && Boolean(g2p && g2p.includes('/'));
   console.log(ok ? 'SMOKE TEST PASSED' : 'SMOKE TEST FAILED');
   if (errors.length) {
     console.log('console/page errors:', errors.slice(0, 5));

@@ -5,6 +5,7 @@
  */
 import './style.css';
 import { decodeTo16kMono } from './core/audio';
+import { getExpectedPhones } from './core/g2p';
 
 const MODEL_ID = 'onnx-community/wav2vec2-lv-60-espeak-cv-ft-ONNX';
 
@@ -115,6 +116,30 @@ async function runAudio(blob: Blob): Promise<void> {
   }
 }
 
+async function renderExpectedPhones(): Promise<void> {
+  const text = ($('expected-text') as HTMLInputElement).value.trim();
+  const el = $('expected-phones');
+  if (!text) {
+    el.textContent = '';
+    return;
+  }
+  try {
+    const { groups } = await getExpectedPhones(text, 'en');
+    el.innerHTML = '';
+    groups.forEach((phones) => {
+      if (!phones.length) {
+        return;
+      }
+      const word = document.createElement('span');
+      word.textContent = `/${phones.join(' ')}/`;
+      word.className = 'inline-block mr-3';
+      el.appendChild(word);
+    });
+  } catch (error) {
+    el.textContent = `g2p failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
 function init(): void {
   $('env-info').textContent = `crossOriginIsolated: ${String(self.crossOriginIsolated)} · hardwareConcurrency: ${navigator.hardwareConcurrency} · webgpu: ${String('gpu' in navigator)}`;
 
@@ -153,6 +178,11 @@ function init(): void {
   });
 
   setBusy(true);
+  // Expected phones via espeak-ng WASM on the main thread (fast, no model needed)
+  const expectedInput = $('expected-text') as HTMLInputElement;
+  expectedInput.addEventListener('input', () => void renderExpectedPhones());
+  void renderExpectedPhones();
+
   // Auto-load with the selected backend; the Load button stays for manual reloads
   const device = ($('device-select') as HTMLSelectElement).value as 'wasm' | 'webgpu';
   const dtype = ($('dtype-select') as HTMLSelectElement).value as 'q8' | 'q4' | 'q4f16' | 'fp16' | 'fp32';
