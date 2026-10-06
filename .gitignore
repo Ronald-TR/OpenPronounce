@@ -14,3 +14,9 @@ test_env
 .env
 .env.*
 .claude/
+
+# web (client-side spike)
+web/node_modules/
+web/dist/
+web/tests/fixtures/bench-report.json
+web/tests/fixtures/heard.json
