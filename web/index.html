@@ -4,115 +4,303 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OpenPronounce · client-side spike</title>
+    <title>OpenPronounce: say a sentence, see which sounds went wrong</title>
+    <meta name="description"
+        content="Open-source, phoneme-level pronunciation feedback that runs entirely in your browser. Record a sentence and see which sounds went wrong.">
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <meta name="theme-color" content="#ea580c">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-feature-settings: "cv11", "ss01"; }
+
+        /* Recording pulse */
+        @keyframes rec-pulse {
+            0% { box-shadow: 0 0 0 0 rgba(234, 88, 12, 0.45); }
+            70% { box-shadow: 0 0 0 22px rgba(234, 88, 12, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(234, 88, 12, 0); }
+        }
+        .is-recording { animation: rec-pulse 1.4s ease-out infinite; }
+
+        /* Indeterminate progress line */
+        @keyframes progress-slide {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(400%); }
+        }
+        .progress-line::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            width: 25%;
+            background: #ea580c;
+            border-radius: 9999px;
+            animation: progress-slide 1.6s ease-in-out infinite;
+        }
+
+        .reveal { animation: reveal 0.5s ease-out both; }
+        @keyframes reveal {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: none; }
+        }
+        #score-ring { transition: stroke-dashoffset 1s cubic-bezier(.2, .7, .2, 1); }
+
+        .chip { transition: transform .12s ease, box-shadow .12s ease; }
+        .chip:hover { transform: translateY(-1px); }
+        .chip[aria-pressed="true"] { box-shadow: 0 0 0 2px #fff, 0 0 0 4px #ea580c; }
+
+        details > summary { list-style: none; }
+        details > summary::-webkit-details-marker { display: none; }
+        details[open] .chev { transform: rotate(180deg); }
+        .chev { transition: transform .2s ease; }
+
+        @media (prefers-reduced-motion: reduce) {
+            .is-recording, .progress-line::after, .reveal { animation: none; }
+            #score-ring { transition: none; }
+        }
+    </style>
 </head>
 
 <body class="bg-[#fcfcfb] text-neutral-800 min-h-screen antialiased">
-    <main class="max-w-2xl mx-auto px-5 py-10">
-        <p class="text-xs font-medium uppercase tracking-wide text-accent-600">Phase 0 · spike</p>
-        <h1 class="mt-1 text-2xl font-bold tracking-tight text-neutral-900">Phone recognition in the browser</h1>
-        <p class="mt-2 text-sm text-neutral-600">
-            Loads <code class="text-xs bg-neutral-100 rounded px-1 py-0.5">onnx-community/wav2vec2-lv-60-espeak-cv-ft-ONNX</code>
-            via transformers.js and decodes phones exactly like the Python pipeline.
-        </p>
-        <p id="env-info" class="mt-2 text-xs text-neutral-400"></p>
 
-        <!-- Controls -->
-        <section class="mt-6 bg-white border border-neutral-200 rounded-2xl p-5">
-            <div class="flex flex-wrap items-end gap-4">
-                <label class="flex flex-col gap-1 text-sm">
-                    <span class="text-neutral-600">Device</span>
-                    <select id="device-select"
-                        class="bg-neutral-50 border border-neutral-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent-500/40">
-                        <option value="wasm">wasm</option>
-                        <option value="webgpu">webgpu</option>
-                    </select>
-                </label>
-                <label class="flex flex-col gap-1 text-sm">
-                    <span class="text-neutral-600">Quantization</span>
-                    <select id="dtype-select"
-                        class="bg-neutral-50 border border-neutral-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent-500/40">
-                        <option value="q8" selected>q8 (~318 MB)</option>
-                        <option value="q4">q4 (~242 MB)</option>
-                        <option value="fp16">fp16 (~632 MB)</option>
-                        <option value="fp32">fp32 (~1.26 GB)</option>
-                        <option value="q4f16">q4f16 (~197 MB, webgpu only)</option>
-                    </select>
-                </label>
-                <button id="load-btn" type="button"
-                    class="px-5 py-2.5 rounded-xl bg-accent-500 text-white font-medium hover:bg-accent-600 disabled:opacity-50 disabled:cursor-wait transition">
-                    Load model
-                </button>
-            </div>
-            <p id="status" class="mt-3 text-sm text-neutral-600">idle</p>
-        </section>
+    <!-- Header -->
+    <header class="max-w-2xl mx-auto px-5 pt-6 pb-2 flex items-center justify-between">
+        <a href="/" class="flex items-center gap-2 font-semibold tracking-tight text-neutral-900">
+            <img src="/assets/logo.svg" alt="" class="w-6 h-6">
+            OpenPronounce
+        </a>
+        <div class="flex items-center gap-4">
+            <a href="/spike.html" class="text-sm text-neutral-500 hover:text-neutral-800 transition-colors">Diagnostics</a>
+            <a href="https://github.com/Halleck45/OpenPronounce" target="_blank" rel="noopener"
+                class="inline-flex items-center gap-2 text-sm text-neutral-600 hover:text-neutral-900 transition-colors">
+                <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path fill-rule="evenodd"
+                        d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"
+                        clip-rule="evenodd" />
+                </svg>
+                <span class="hidden sm:inline">GitHub</span>
+            </a>
+        </div>
+    </header>
 
-        <!-- Expected sentence (G2P in the browser) -->
-        <section class="mt-4 bg-white border border-neutral-200 rounded-2xl p-5">
-            <p class="text-sm font-medium text-neutral-700">Expected sentence</p>
-            <input id="expected-text" type="text" value="I would like a cup of coffee, please."
-                class="mt-2 w-full text-base px-3 py-2 border border-neutral-200 rounded-xl bg-neutral-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-accent-500/40">
-            <p id="expected-phones" class="mt-2 font-mono text-lg leading-relaxed min-h-8 text-neutral-700"></p>
-            <p class="mt-1 text-xs text-neutral-400">phones per word, via espeak-ng WASM in this browser</p>
-        </section>
+    <main class="max-w-2xl mx-auto px-5 pb-16">
 
-        <!-- Audio input -->
-        <section class="mt-4 bg-white border border-neutral-200 rounded-2xl p-5">
-            <p class="text-sm font-medium text-neutral-700">Audio</p>
-            <p class="mt-1 text-xs text-neutral-500">Drop a wav/webm/mp3 here or pick a file (fixtures are in
-                web/tests/fixtures).</p>
-            <input type="file" id="file-input" accept="audio/*"
-                class="mt-3 text-sm file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-neutral-100 file:text-neutral-700 hover:file:bg-neutral-200">
-            <audio id="audio-preview" controls class="hidden mt-3 w-full h-10"></audio>
-            <button id="run-btn" type="button" disabled
-                class="hidden mt-3 px-5 py-2 rounded-xl border border-neutral-300 text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 transition">Analyze</button>
-        </section>
-
-        <!-- Score -->
-        <section class="mt-4 bg-white border border-neutral-200 rounded-2xl p-5">
-            <div class="flex flex-wrap items-center justify-between gap-3">
-                <p class="text-sm font-medium text-neutral-700">Score <span id="asr-loaded" class="hidden"></span></p>
-                <button id="score-btn" type="button" disabled
-                    class="px-4 py-2 rounded-xl bg-accent-500 text-white text-sm font-medium hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition">
-                    Score against piper reference
-                </button>
-            </div>
-            <p class="mt-1 text-xs text-neutral-500">
-                Synthesizes the expected sentence with piper (en_US-lessac-medium, ~63 MB first time), embeds both
-                recordings (encoder, ~355 MB first time) and combines acoustic DTW (30 %), phones (40 %) and words (30 %).
+        <!-- Headline -->
+        <section class="pt-8 pb-6">
+            <h1 class="text-3xl sm:text-[2.6rem] sm:leading-[1.15] font-bold tracking-tight text-neutral-900">
+                Say a sentence.<br> See which sounds went wrong.
+            </h1>
+            <p class="mt-3 text-neutral-600 text-base sm:text-lg">
+                Phoneme-level feedback that runs <strong>entirely in your browser</strong> — your voice never leaves
+                this page. English first, more languages later.
             </p>
-            <div id="score-box" class="hidden mt-3 grid gap-2 text-sm">
-                <div class="flex items-baseline gap-3">
-                    <span class="text-4xl font-bold tracking-tight tabular-nums text-neutral-900" id="score-value">–</span>
-                    <span class="text-xs text-neutral-500">out of 100</span>
-                </div>
-                <div><span class="text-xs text-neutral-500">acoustic (mean per-step DTW)</span><span id="score-acoustic" class="ml-2 font-medium tabular-nums"></span></div>
-                <div><span class="text-xs text-neutral-500">phone error rate</span><span id="score-phones" class="ml-2 font-medium"></span></div>
-                <div><span class="text-xs text-neutral-500">word error rate</span><span id="score-words" class="ml-2 font-medium"></span></div>
-            </div>
-            <audio id="reference-preview" controls class="hidden mt-3 w-full h-10"></audio>
         </section>
 
-        <!-- Results -->
-        <section class="mt-4 bg-white border border-neutral-200 rounded-2xl p-5">
-            <p class="text-sm font-medium text-neutral-700">Timings</p>
-            <div id="timings" class="hidden mt-2 grid grid-cols-2 sm:grid-cols-5 gap-3 text-sm">
-                <div><span class="block text-xs text-neutral-500">total</span><span id="t-total" class="font-semibold tabular-nums"></span></div>
-                <div><span class="block text-xs text-neutral-500">inference</span><span id="t-inference" class="font-semibold tabular-nums"></span></div>
-                <div><span class="block text-xs text-neutral-500">preprocess</span><span id="t-preprocess" class="font-semibold tabular-nums"></span></div>
-                <div><span class="block text-xs text-neutral-500">ctc decode</span><span id="t-decode" class="font-semibold tabular-nums"></span></div>
-                <div><span class="block text-xs text-neutral-500">frames</span><span id="t-frames" class="font-semibold tabular-nums"></span></div>
+        <!-- Models -->
+        <section class="mb-4 bg-white border border-neutral-200 rounded-2xl p-4 sm:p-5">
+            <details id="models-details">
+                <summary class="cursor-pointer select-none inline-flex items-center gap-2 text-sm font-medium text-neutral-600 hover:text-neutral-900">
+                    <svg class="chev w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                    </svg>
+                    Local AI models
+                    <span id="models-status" class="font-normal text-neutral-400 text-xs"></span>
+                </summary>
+                <ul id="models-list" class="mt-3 grid gap-1.5 text-sm"></ul>
+                <div class="mt-3 flex flex-wrap items-center gap-3">
+                    <span id="storage-info" class="text-xs text-neutral-500"></span>
+                    <button id="models-clear" type="button"
+                        class="ml-auto text-xs px-3 py-1.5 rounded-lg border border-neutral-300 text-neutral-600 hover:bg-neutral-50 transition">
+                        Delete downloaded models
+                    </button>
+                </div>
+            </details>
+        </section>
+
+        <!-- Practice card -->
+        <section id="practice" class="bg-white border border-neutral-200 rounded-2xl p-5 sm:p-7 relative">
+            <div id="drop-overlay"
+                class="hidden absolute inset-0 rounded-2xl border-2 border-dashed border-accent-500 bg-accent-50/90 items-center justify-center text-accent-700 font-medium pointer-events-none z-10">
+                Drop your audio file
             </div>
 
-            <p class="mt-4 text-sm font-medium text-neutral-700">Heard phones</p>
-            <p id="phones" class="mt-2 font-mono text-lg leading-relaxed min-h-8"></p>
-            <p class="mt-1 text-xs text-neutral-400">dimmed = confidence &lt; 50 %</p>
+            <div class="flex items-center justify-between gap-4 mb-2">
+                <label for="expected-text" class="text-sm font-medium text-neutral-700">Sentence to say</label>
+                <span class="text-xs px-2.5 py-1.5 rounded-lg bg-neutral-50 border border-neutral-200 text-neutral-500">English</span>
+            </div>
+
+            <textarea id="expected-text" rows="2" spellcheck="false" placeholder="Type a sentence, or pick one below"
+                class="w-full text-lg sm:text-xl leading-snug px-4 py-3 border border-neutral-200 rounded-xl bg-neutral-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-accent-500/40 focus:border-accent-500 resize-none">Hello, how are you?</textarea>
+
+            <div class="mt-3 flex flex-wrap items-center gap-2" id="examples">
+                <span class="text-xs text-neutral-500 mr-1">Try:</span>
+            </div>
+
+            <div id="text-hint" class="hidden mt-2 text-sm text-red-600" role="alert"></div>
+
+            <!-- Microphone -->
+            <div class="mt-8 flex flex-col items-center text-center">
+                <div class="flex items-center gap-4">
+                    <button id="record-btn" type="button" aria-label="Record" disabled
+                        class="w-24 h-24 rounded-full bg-accent-500 text-white flex items-center justify-center hover:bg-accent-600 active:scale-95 disabled:opacity-50 disabled:cursor-wait focus:outline-none focus-visible:ring-4 focus-visible:ring-accent-500/40 transition">
+                        <svg id="mic-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                            stroke="currentColor" class="w-10 h-10">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3Z" />
+                        </svg>
+                        <svg id="stop-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"
+                            class="w-9 h-9 hidden">
+                            <rect x="6" y="6" width="12" height="12" rx="2" />
+                        </svg>
+                    </button>
+                    <div class="relative">
+                        <button id="mic-select-btn" type="button" aria-label="Choose microphone" aria-haspopup="listbox"
+                            aria-expanded="false" title="Choose microphone" disabled
+                            class="w-11 h-11 rounded-full border border-neutral-200 bg-white text-neutral-500 flex items-center justify-center hover:text-neutral-900 hover:border-neutral-300 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 transition">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                                stroke="currentColor" class="w-5 h-5">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
+                            </svg>
+                        </button>
+                        <div id="mic-select-menu" role="listbox" aria-label="Microphone"
+                            class="hidden absolute z-20 top-full mt-2 left-1/2 -translate-x-1/2 w-64 max-w-[calc(100vw-2.5rem)] bg-white border border-neutral-200 rounded-xl shadow-lg p-1.5 text-left">
+                        </div>
+                    </div>
+                </div>
+                <p id="record-hint" class="mt-3 text-sm text-neutral-600">Preparing local AI models…</p>
+                <p id="record-timer" class="hidden mt-1 text-sm tabular-nums text-neutral-500">00:00</p>
+                <p id="record-error" class="hidden mt-2 text-sm text-red-600 max-w-sm" role="alert"></p>
+                <p id="mic-name" class="mt-1 text-xs text-neutral-400 max-w-xs truncate"></p>
+                <label class="mt-4 inline-flex items-center gap-2 text-sm text-neutral-600 cursor-pointer select-none"
+                    title="When enabled, recording stops by itself after two seconds of silence (or after 60 s)">
+                    <input id="auto-stop-toggle" type="checkbox" checked
+                        class="w-4 h-4 rounded border-neutral-300 accent-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/40 cursor-pointer">
+                    Stop automatically on silence
+                </label>
+            </div>
+
+            <!-- Secondary actions -->
+            <div class="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm">
+                <button id="upload-btn" type="button" disabled
+                    class="inline-flex items-center gap-1.5 text-neutral-600 hover:text-neutral-900 disabled:opacity-50 transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                        stroke="currentColor" class="w-4 h-4">
+                        <path stroke-linecap="round" stroke-linejoin="round"
+                            d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
+                    </svg>
+                    Upload an audio file
+                </button>
+                <input type="file" id="file-input" accept="audio/*" class="hidden">
+            </div>
+
+            <!-- Uploaded / recorded audio -->
+            <div id="audio-review" class="hidden mt-6 pt-5 border-t border-neutral-100">
+                <div class="flex flex-col sm:flex-row items-center gap-3">
+                    <audio id="audio-player" controls class="w-full sm:flex-1 h-10"></audio>
+                    <button id="analyze-btn" type="button"
+                        class="hidden shrink-0 px-5 py-2.5 rounded-xl bg-accent-500 text-white font-medium hover:bg-accent-600 disabled:opacity-50 disabled:cursor-wait transition">
+                        Analyze
+                    </button>
+                </div>
+                <p id="file-name" class="mt-2 text-xs text-neutral-500 truncate"></p>
+            </div>
+        </section>
+
+        <!-- Loading -->
+        <section id="loading" class="hidden mt-6 bg-white border border-neutral-200 rounded-2xl p-6 sm:p-7" aria-live="polite">
+            <p id="loading-step" class="text-neutral-700 font-medium">Preparing the analysis</p>
+            <div class="progress-line relative mt-3 h-1 rounded-full bg-neutral-100 overflow-hidden"></div>
+            <p class="mt-3 text-xs text-neutral-500">Everything runs locally in this tab. The first run downloads the models; later runs are fully offline.</p>
+        </section>
+
+        <!-- Error -->
+        <section id="error" class="hidden mt-6 bg-white border border-red-200 rounded-2xl p-6 sm:p-7" role="alert">
+            <p class="font-medium text-neutral-900">That did not work.</p>
+            <p id="error-message" class="mt-1 text-neutral-600">The analysis failed. Try again in a moment.</p>
+            <button id="retry-btn" type="button"
+                class="mt-4 px-4 py-2 rounded-xl border border-neutral-300 text-neutral-700 hover:bg-neutral-50 transition">
+                Try again
+            </button>
+        </section>
+
+        <!-- Result -->
+        <section id="result" class="hidden mt-6 bg-white border border-neutral-200 rounded-2xl p-5 sm:p-7">
+
+            <!-- Score -->
+            <div class="flex flex-col sm:flex-row items-center gap-6 sm:gap-8">
+                <div class="relative w-36 h-36 shrink-0">
+                    <svg class="w-36 h-36 -rotate-90" viewBox="0 0 144 144" aria-hidden="true">
+                        <circle cx="72" cy="72" r="62" stroke="#f0efed" stroke-width="10" fill="none" />
+                        <circle id="score-ring" cx="72" cy="72" r="62" stroke="#ea580c" stroke-width="10" fill="none"
+                            stroke-linecap="round" stroke-dasharray="389.6" stroke-dashoffset="389.6" />
+                    </svg>
+                    <div class="absolute inset-0 flex flex-col items-center justify-center">
+                        <span id="score-value" class="text-5xl font-bold tracking-tight tabular-nums text-neutral-900">0</span>
+                        <span class="text-xs text-neutral-500 -mt-0.5">out of 100</span>
+                    </div>
+                </div>
+                <div class="text-center sm:text-left">
+                    <p id="verdict" class="text-xl sm:text-2xl font-semibold text-neutral-900">Score</p>
+                    <p id="verdict-sub" class="mt-1 text-neutral-600">Tap a word to see its sounds.</p>
+                    <div id="word-chips" class="mt-4 flex flex-wrap justify-center sm:justify-start gap-2"></div>
+                </div>
+            </div>
+
+            <!-- Word detail -->
+            <div id="word-detail" class="hidden mt-6 rounded-xl border border-neutral-200 bg-neutral-50 p-4 sm:p-5">
+                <div class="flex items-baseline gap-3 flex-wrap">
+                    <span id="detail-word" class="text-2xl font-semibold text-neutral-900">word</span>
+                    <span id="detail-status" class="text-sm font-medium"></span>
+                </div>
+                <dl class="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-base">
+                    <dt class="text-neutral-500 text-sm pt-0.5">Expected</dt>
+                    <dd id="detail-expected" class="font-mono text-lg tracking-wide"></dd>
+                    <dt class="text-neutral-500 text-sm pt-0.5">You said</dt>
+                    <dd id="detail-heard" class="font-mono text-lg tracking-wide"></dd>
+                </dl>
+                <p id="detail-note" class="mt-3 text-sm text-neutral-600"></p>
+            </div>
+
+            <!-- What we heard -->
+            <div class="mt-6 grid gap-3 text-sm">
+                <div class="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-4">
+                    <span class="text-neutral-500 sm:w-24 shrink-0">We heard</span>
+                    <span id="transcript" class="text-neutral-800 font-medium"></span>
+                </div>
+                <div class="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-4">
+                    <span class="text-neutral-500 sm:w-24 shrink-0">Your sounds</span>
+                    <span id="heard-phones" class="font-mono text-base leading-relaxed"></span>
+                </div>
+                <div class="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-4">
+                    <span class="text-neutral-500 sm:w-24 shrink-0">Breakdown</span>
+                    <span id="breakdown" class="text-neutral-600"></span>
+                </div>
+            </div>
+
+            <div class="mt-6 flex flex-wrap gap-3">
+                <button id="again-btn" type="button"
+                    class="px-5 py-2.5 rounded-xl bg-accent-500 text-white font-medium hover:bg-accent-600 transition">
+                    Try again
+                </button>
+                <button id="replay-btn" type="button"
+                    class="px-5 py-2.5 rounded-xl border border-neutral-300 text-neutral-700 hover:bg-neutral-50 transition">
+                    Replay my recording
+                </button>
+            </div>
         </section>
     </main>
-    <script type="module" src="/src/main.ts"></script>
+
+    <footer class="max-w-2xl mx-auto px-5 pb-10 text-xs text-neutral-500 flex flex-wrap items-center gap-x-4 gap-y-2">
+        <a href="https://github.com/Halleck45/OpenPronounce" target="_blank" rel="noopener" class="hover:text-neutral-800">GitHub</a>
+        <span aria-hidden="true">·</span>
+        <span>MIT</span>
+        <span aria-hidden="true">·</span>
+        <span>100% client-side — audio never leaves your device</span>
+    </footer>
+
+    <script type="module" src="/src/app/main.ts"></script>
 </body>
 
 </html>

@@ -97,12 +97,12 @@ worker.onmessage = (event: MessageEvent) => {
     const heap = mem ? ` · JS heap ${(mem.usedJSHeapSize / 1e6).toFixed(0)} MB` : '';
     setStatus(`phone model ready (${data.payload.device}/${data.payload.dtype})${heap}`);
   } else if (data.type === 'result') {
-    renderResult(data.payload as ResultPayload);
+    renderResult(data as unknown as ResultPayload);
     setBusy(false);
   } else if (data.type === 'asr-ready') {
     asrReadyResolve?.();
   } else if (data.type === 'transcript') {
-    lastTranscript = (data.payload as { transcript: string }).transcript;
+    lastTranscript = String((data as { transcript?: string }).transcript ?? '');
   } else if (data.type === 'error') {
     setStatus(`error: ${data.message}`);
     setBusy(false);

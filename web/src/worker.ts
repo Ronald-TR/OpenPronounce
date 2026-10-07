@@ -8,10 +8,12 @@
  *               { type: 'asr-ready' }                  { type: 'transcript', payload }
  *               { type: 'result', payload }            { type: 'error', message }
  */
-import { AutoProcessor, AutoTokenizer, Wav2Vec2ForCTC } from '@huggingface/transformers';
+import { AutoProcessor, AutoTokenizer, Wav2Vec2ForCTC, env } from '@huggingface/transformers';
 import { createSession, type Device, type Dtype, type ModelProgress, type Session, type SessionInfo } from './core/session';
+import { createEmbedder, acousticDistance, type Embedder } from './core/embeddings';
 
 const ASR_MODEL_ID = 'onnx-community/wav2vec2-base-960h-ONNX';
+const ENCODER_PATH = 'models/wav2vec2-960h-encoder';
 
 let session: Session | null = null;
 let asr: {
@@ -19,12 +21,14 @@ let asr: {
   model: Awaited<ReturnType<typeof Wav2Vec2ForCTC.from_pretrained>>;
   idToToken: string[];
 } | null = null;
+let embedder: Embedder | null = null;
 
-type LoadMessage = { type: 'load'; device: Device; dtype: Dtype };
+type LoadMessage = { type: 'load'; device: Device; dtype: Dtype; requestId?: number };
 type InferMessage = { type: 'infer'; audio: Float32Array; requestId: number };
-type LoadAsrMessage = { type: 'load-asr' };
+type LoadAsrMessage = { type: 'load-asr'; requestId?: number };
 type TranscribeMessage = { type: 'transcribe'; audio: Float32Array; requestId: number };
-type WorkerMessage = LoadMessage | InferMessage | LoadAsrMessage | TranscribeMessage;
+type AcousticMessage = { type: 'acoustic'; learner: Float32Array; reference: Float32Array; requestId: number };
+type WorkerMessage = LoadMessage | InferMessage | LoadAsrMessage | TranscribeMessage | AcousticMessage;
 
 const post = (message: unknown, transfer?: Transferable[]): void => {
   (self as unknown as Worker).postMessage(message, transfer ?? []);
@@ -42,7 +46,7 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
         },
       });
       const info: SessionInfo = session.info;
-      post({ type: 'ready', payload: info });
+      post({ type: 'ready', requestId: message.requestId, payload: info });
       return;
     }
 
@@ -52,7 +56,18 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
       }
       const result = await session.runFull(message.audio);
       post(
-        { type: 'result', payload: { requestId: message.requestId, ...result } },
+        {
+          type: 'result',
+          requestId: message.requestId,
+          phones: result.phones,
+          confidences: result.confidences,
+          frames: result.frames,
+          audioSeconds: result.audioSeconds,
+          spans: result.spans,
+          vocabSize: result.vocabSize,
+          logPosteriors: result.logPosteriors,
+          timings: result.timings,
+        },
         [result.logPosteriors.buffer],
       );
       return;
@@ -66,7 +81,7 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
       const idToToken = tokenizerModel.vocab;
       const model = await Wav2Vec2ForCTC.from_pretrained(ASR_MODEL_ID, { dtype: 'q8' });
       asr = { processor, model, idToToken };
-      post({ type: 'asr-ready' });
+      post({ type: 'asr-ready', requestId: message.requestId });
       return;
     }
 
@@ -99,12 +114,34 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
       }
       // the 960h vocab marks word boundaries with '|'
       transcript = transcript.replace(/\|/g, ' ');
-      post({ type: 'transcript', payload: { requestId: message.requestId, transcript } });
+      post({ type: 'transcript', requestId: message.requestId, transcript });
+      return;
+    }
+    if (message.type === 'acoustic') {
+      // the encoder lives in this worker too: a single ORT runtime keeps
+      // memory and thread pressure under control
+      env.allowLocalModels = true;
+      env.localModelPath = '/';
+      if (!embedder) {
+        embedder = await createEmbedder(ENCODER_PATH, 'q8');
+      }
+      const learnerEmbedding = await embedder.embed(message.learner);
+      const referenceEmbedding = await embedder.embed(message.reference);
+      const acoustic = acousticDistance(learnerEmbedding, referenceEmbedding);
+      post({
+        type: 'acoustic-result',
+        requestId: message.requestId,
+        distance: acoustic.distance,
+        meanPerStep: acoustic.meanPerStep,
+        pathLength: acoustic.pathLength,
+        ms: acoustic.ms,
+      });
       return;
     }
   } catch (error) {
     post({
       type: 'error',
+      requestId: (message as { requestId?: number }).requestId,
       message: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
     });
   }

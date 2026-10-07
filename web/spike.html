@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenPronounce · diagnostics</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body class="bg-[#fcfcfb] text-neutral-800 min-h-screen antialiased">
+    <main class="max-w-2xl mx-auto px-5 py-10">
+        <p class="text-xs font-medium uppercase tracking-wide text-accent-600">Phase 0 · spike</p>
+        <h1 class="mt-1 text-2xl font-bold tracking-tight text-neutral-900">Phone recognition in the browser</h1>
+        <p class="mt-2 text-sm text-neutral-600">
+            Loads <code class="text-xs bg-neutral-100 rounded px-1 py-0.5">onnx-community/wav2vec2-lv-60-espeak-cv-ft-ONNX</code>
+            via transformers.js and decodes phones exactly like the Python pipeline.
+        </p>
+        <p id="env-info" class="mt-2 text-xs text-neutral-400"></p>
+
+        <!-- Controls -->
+        <section class="mt-6 bg-white border border-neutral-200 rounded-2xl p-5">
+            <div class="flex flex-wrap items-end gap-4">
+                <label class="flex flex-col gap-1 text-sm">
+                    <span class="text-neutral-600">Device</span>
+                    <select id="device-select"
+                        class="bg-neutral-50 border border-neutral-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent-500/40">
+                        <option value="wasm">wasm</option>
+                        <option value="webgpu">webgpu</option>
+                    </select>
+                </label>
+                <label class="flex flex-col gap-1 text-sm">
+                    <span class="text-neutral-600">Quantization</span>
+                    <select id="dtype-select"
+                        class="bg-neutral-50 border border-neutral-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent-500/40">
+                        <option value="q8" selected>q8 (~318 MB)</option>
+                        <option value="q4">q4 (~242 MB)</option>
+                        <option value="fp16">fp16 (~632 MB)</option>
+                        <option value="fp32">fp32 (~1.26 GB)</option>
+                        <option value="q4f16">q4f16 (~197 MB, webgpu only)</option>
+                    </select>
+                </label>
+                <button id="load-btn" type="button"
+                    class="px-5 py-2.5 rounded-xl bg-accent-500 text-white font-medium hover:bg-accent-600 disabled:opacity-50 disabled:cursor-wait transition">
+                    Load model
+                </button>
+            </div>
+            <p id="status" class="mt-3 text-sm text-neutral-600">idle</p>
+        </section>
+
+        <!-- Expected sentence (G2P in the browser) -->
+        <section class="mt-4 bg-white border border-neutral-200 rounded-2xl p-5">
+            <p class="text-sm font-medium text-neutral-700">Expected sentence</p>
+            <input id="expected-text" type="text" value="I would like a cup of coffee, please."
+                class="mt-2 w-full text-base px-3 py-2 border border-neutral-200 rounded-xl bg-neutral-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-accent-500/40">
+            <p id="expected-phones" class="mt-2 font-mono text-lg leading-relaxed min-h-8 text-neutral-700"></p>
+            <p class="mt-1 text-xs text-neutral-400">phones per word, via espeak-ng WASM in this browser</p>
+        </section>
+
+        <!-- Audio input -->
+        <section class="mt-4 bg-white border border-neutral-200 rounded-2xl p-5">
+            <p class="text-sm font-medium text-neutral-700">Audio</p>
+            <p class="mt-1 text-xs text-neutral-500">Drop a wav/webm/mp3 here or pick a file (fixtures are in
+                web/tests/fixtures).</p>
+            <input type="file" id="file-input" accept="audio/*"
+                class="mt-3 text-sm file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-neutral-100 file:text-neutral-700 hover:file:bg-neutral-200">
+            <audio id="audio-preview" controls class="hidden mt-3 w-full h-10"></audio>
+            <button id="run-btn" type="button" disabled
+                class="hidden mt-3 px-5 py-2 rounded-xl border border-neutral-300 text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 transition">Analyze</button>
+        </section>
+
+        <!-- Score -->
+        <section class="mt-4 bg-white border border-neutral-200 rounded-2xl p-5">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <p class="text-sm font-medium text-neutral-700">Score <span id="asr-loaded" class="hidden"></span></p>
+                <button id="score-btn" type="button" disabled
+                    class="px-4 py-2 rounded-xl bg-accent-500 text-white text-sm font-medium hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition">
+                    Score against piper reference
+                </button>
+            </div>
+            <p class="mt-1 text-xs text-neutral-500">
+                Synthesizes the expected sentence with piper (en_US-lessac-medium, ~63 MB first time), embeds both
+                recordings (encoder, ~355 MB first time) and combines acoustic DTW (30 %), phones (40 %) and words (30 %).
+            </p>
+            <div id="score-box" class="hidden mt-3 grid gap-2 text-sm">
+                <div class="flex items-baseline gap-3">
+                    <span class="text-4xl font-bold tracking-tight tabular-nums text-neutral-900" id="score-value">–</span>
+                    <span class="text-xs text-neutral-500">out of 100</span>
+                </div>
+                <div><span class="text-xs text-neutral-500">acoustic (mean per-step DTW)</span><span id="score-acoustic" class="ml-2 font-medium tabular-nums"></span></div>
+                <div><span class="text-xs text-neutral-500">phone error rate</span><span id="score-phones" class="ml-2 font-medium"></span></div>
+                <div><span class="text-xs text-neutral-500">word error rate</span><span id="score-words" class="ml-2 font-medium"></span></div>
+            </div>
+            <audio id="reference-preview" controls class="hidden mt-3 w-full h-10"></audio>
+        </section>
+
+        <!-- Results -->
+        <section class="mt-4 bg-white border border-neutral-200 rounded-2xl p-5">
+            <p class="text-sm font-medium text-neutral-700">Timings</p>
+            <div id="timings" class="hidden mt-2 grid grid-cols-2 sm:grid-cols-5 gap-3 text-sm">
+                <div><span class="block text-xs text-neutral-500">total</span><span id="t-total" class="font-semibold tabular-nums"></span></div>
+                <div><span class="block text-xs text-neutral-500">inference</span><span id="t-inference" class="font-semibold tabular-nums"></span></div>
+                <div><span class="block text-xs text-neutral-500">preprocess</span><span id="t-preprocess" class="font-semibold tabular-nums"></span></div>
+                <div><span class="block text-xs text-neutral-500">ctc decode</span><span id="t-decode" class="font-semibold tabular-nums"></span></div>
+                <div><span class="block text-xs text-neutral-500">frames</span><span id="t-frames" class="font-semibold tabular-nums"></span></div>
+            </div>
+
+            <p class="mt-4 text-sm font-medium text-neutral-700">Heard phones</p>
+            <p id="phones" class="mt-2 font-mono text-lg leading-relaxed min-h-8"></p>
+            <p class="mt-1 text-xs text-neutral-400">dimmed = confidence &lt; 50 %</p>
+        </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+</body>
+
+</html>

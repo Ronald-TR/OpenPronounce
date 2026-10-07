@@ -1,9 +1,9 @@
 # Phase 0 Spike — Phone recognition in the browser
 
-**Status update:** Phase 1 (full comparison pipeline port + component parity)
-and Phase 2 (reference TTS, acoustic term and the complete score — all in the
-browser) are done. See the "Phase 1" and "Phase 2" sections at the bottom.
-All parity tests pass; the headless smoke test scores a fixture end-to-end.
+**Status update:** Phase 1 (full comparison pipeline port + component parity),
+Phase 2 (reference TTS, acoustic term and the complete score) and Phase 3
+(production UI, model manager, recording and PWA) are done. The headless smoke
+test now runs the REAL app end-to-end: fixture scored 99/100 in the browser.
 
 **Goal:** validate the hypothesis that OpenPronounce's core model
 (`wav2vec2-lv-60-espeak-cv-ft`, phone recognizer) can run client-side with
@@ -127,6 +127,44 @@ the browser (Cache API + OPFS) after the first load.
 Remaining phase-2 known gaps: the embeddings model is quantized uniformly
 (no per-channel calibration), WebGPU still untested (headless has no WebGPU),
 and mobile is out of scope for the MVP.
+
+---
+
+# Phase 3 — Production UI, model manager and PWA (done)
+
+`web/index.html` is now the real app (the spike lives on at `/spike.html` as a
+diagnostics page):
+
+- **Practice flow** ported from the server app: sentence + example chips,
+  record button, microphone picker, auto-stop toggle (`AudioRecorder` ported
+  to `src/app/recorder.ts` with `setDeviceId` + `setSilenceDetection`),
+  upload + drag-drop, loading/error/result views.
+- **Result view**: score ring, verdict, flagged word chips, per-word phone
+  detail (expected vs heard with per-phone confidences), heard phones,
+  transcript and a score breakdown line.
+- **Model manager**: what is downloaded and its sizes, `navigator.storage.estimate`
+  usage, and a "delete downloaded models" action (Cache API + piper OPFS flush).
+- **PWA**: web manifest + service worker (workbox precache of the app shell,
+  ~24 MB incl. the ORT runtimes; the ~830 MB of models stay in the libraries'
+  own caches). COOP/COEP survive offline navigation because the SW caches the
+  responses with their original headers.
+- **Architecture**: all inference (phone recognizer, ASR, acoustic encoder)
+  lives in ONE worker behind a promise-based RPC (`WorkerClient`); G2P and
+  piper run on the main thread. Moving the encoder out of the main thread into
+  the worker fixed a memory/thread-pressure hang (a second ORT instance + two
+  growing WASM heaps was too much for headless Chromium).
+
+End-to-end smoke on the production app (`npm run test:browser`): upload the
+coffee fixture → analyze → **99/100** (acoustic 6.28, 0 phone errors, 0 word
+errors, correct transcript).
+
+Bugs found and fixed along the way: worker responses nested `requestId` inside
+the payload (RPC never resolved), a buffer detached twice via postMessage
+(empty input to the encoder), and the smoke test reading the score mid
+count-up animation.
+
+Still pending: visemes + Chart.js charts in the result view (all data is
+available client-side), WebGPU trial, phase-4 calibration, phase-5 deploy.
 
 ## How to reproduce
 

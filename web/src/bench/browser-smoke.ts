@@ -1,7 +1,6 @@
 /**
- * Browser smoke test: serve the production build, load the page in headless
- * Chromium, wait for the model, run a fixture through the worker and check
- * the decoded phones.
+ * Browser smoke test: serve the production build, load the app in headless
+ * Chromium, wait for the local models, analyze a fixture and check the score.
  *
  * Usage: npm run test:browser
  */
@@ -23,7 +22,7 @@ async function main(): Promise<void> {
   const url = server.resolvedUrls?.local?.[0] ?? 'http://localhost:5199/';
 
   await mkdir(SCREENSHOTS_DIR, { recursive: true });
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ args: ['--disable-features=ServiceWorker'] });
   const page = await browser.newPage();
 
   const errors: string[] = [];
@@ -32,9 +31,12 @@ async function main(): Promise<void> {
     console.log('  [pageerror]', error.message);
   });
   page.on('console', (message) => {
+    const text = message.text();
     if (message.type() === 'error') {
-      errors.push(`console: ${message.text()}`);
-      console.log('  [console.error]', message.text().slice(0, 300));
+      errors.push(`console: ${text}`);
+      console.log('  [console.error]', text.slice(0, 300));
+    } else if (text.includes('[score inputs]')) {
+      console.log('  [page]', text);
     }
   });
 
@@ -42,82 +44,72 @@ async function main(): Promise<void> {
   const isolated = await page.evaluate('self.crossOriginIsolated');
   console.log('crossOriginIsolated:', isolated);
 
-  // G2P (espeak-ng WASM) renders expected phones right away, no model needed
+  console.log('waiting for local models (~830 MB on a fresh profile)...');
   await page.waitForFunction(
-    () => (document.getElementById('expected-phones')?.textContent ?? '').includes('/'),
-    undefined,
-    { timeout: 60_000 },
-  );
-  const g2p = await page.textContent('#expected-phones');
-  console.log('g2p phones:', g2p?.trim());
-
-  console.log('loading model (wasm/q8, first run downloads ~318 MB)...');
-  await page.waitForFunction(
-    () => document.getElementById('status')?.textContent?.includes('model ready'),
+    () => document.getElementById('record-hint')?.textContent === 'Tap to record, then say the sentence',
     undefined,
     { timeout: 25 * 60_000 },
   );
-  const status = await page.textContent('#status');
-  console.log('status:', status?.trim());
 
+  await page.fill('#expected-text', 'I would like a cup of coffee, please.');
   await page.setInputFiles('#file-input', path.join(FIXTURES_DIR, 'en-coffee.wav'));
-  console.log('fixture submitted, waiting for phones...');
-  await page.waitForFunction(
-    () => (document.getElementById('phones')?.children.length ?? 0) > 0,
-    undefined,
-    { timeout: 5 * 60_000 },
-  );
+  console.log('fixture submitted, clicking Analyze...');
+  await page.click('#analyze-btn');
 
-  const phones = await page.locator('#phones span').allTextContents();
-  const total = await page.textContent('#t-total');
-  const inference = await page.textContent('#t-inference');
-  const frames = await page.textContent('#t-frames');
-
-  console.log('heard phones:', phones.join(' '));
-  console.log(`timings: total ${total} · inference ${inference} · ${frames}`);
-
-  // Full score: piper reference + acoustic encoder + phones + words
-  console.log('scoring against piper reference (downloads voice ~63 MB + encoder ~355 MB first run)...');
   // poll status so failures are visible while waiting
   const statusPoller = setInterval(async () => {
-    const status = await page.textContent('#status').catch(() => null);
+    const status = await page.textContent('#loading-step').catch(() => null);
     if (status && status.trim()) {
       console.log('  [status]', status.trim());
     }
-  }, 10_000);
+  }, 15_000);
   try {
-    await page.click('#score-btn');
     await page.waitForFunction(
-      () => {
-        const value = document.getElementById('score-value')?.textContent ?? '';
-        return document.getElementById('score-box')?.classList.contains('hidden') === false && value !== '–';
-      },
+      () => document.getElementById('result')?.classList.contains('hidden') === false,
       undefined,
       { timeout: 15 * 60_000 },
     );
   } finally {
     clearInterval(statusPoller);
   }
-  const finalStatus = await page.textContent('#status');
-  console.log('final status:', finalStatus?.trim());
-  const score = await page.textContent('#score-value');
-  const scoreAcoustic = await page.textContent('#score-acoustic');
-  const scorePhones = await page.textContent('#score-phones');
-  const scoreWords = await page.textContent('#score-words');
-  console.log(`SCORE: ${score} · acoustic ${scoreAcoustic} · phones ${scorePhones} · words ${scoreWords}`);
 
-  await page.screenshot({ path: path.join(SCREENSHOTS_DIR, 'spike-browser.png'), fullPage: true });
-  console.log('screenshot: web/tests/screenshots/spike-browser.png');
+  // wait for the score count-up animation (900 ms) to finish before reading
+  await page.waitForFunction(
+    () => {
+      const el = document.getElementById('score-value');
+      if (!el) return false;
+      const current = el.textContent ?? '';
+      return el.dataset.final === '1' && current.length > 0;
+    },
+    undefined,
+    { timeout: 60_000 },
+  );
+  const score = await page.textContent('#score-value');
+  const verdict = await page.textContent('#verdict');
+  const heard = await page.textContent('#heard-phones');
+  const transcript = await page.textContent('#transcript');
+  const breakdown = await page.textContent('#breakdown');
+  const phoneSpans = await page.locator('#heard-phones span').allTextContents();
+  const chipCount = await page.locator('#word-chips button').count();
+
+  console.log(`SCORE: ${score} · ${verdict}`);
+  console.log('heard phones (spans):', JSON.stringify(phoneSpans.slice(0, 8)), `(${phoneSpans.length} spans)`);
+  console.log(`chips: ${chipCount}`);
+  console.log('transcript:', transcript?.trim());
+  console.log('breakdown:', breakdown?.trim());
+
+  await page.screenshot({ path: path.join(SCREENSHOTS_DIR, 'app-browser.png'), fullPage: true });
+  console.log('screenshot: web/tests/screenshots/app-browser.png');
 
   await browser.close();
   await new Promise<void>((resolve) => server.httpServer?.close(() => resolve()));
 
-  const heard = phones.join(' ');
+  const heardText = (heard ?? '').replace(/\s+/g, '');
   const scoreNumber = Number(score);
-  const ok = heard.startsWith('aɪ w ʊ d l aɪ k') && scoreNumber > 75;
-  console.log(ok ? 'SMOKE TEST PASSED' : `SMOKE TEST FAILED (heard ok: ${heard.startsWith('aɪ w ʊ d l aɪ k')}, score: ${scoreNumber})`);
+  const ok = heardText.startsWith('aɪwʊdlaɪk') && phoneSpans.length >= 20 && scoreNumber > 75;
+  console.log(ok ? 'SMOKE TEST PASSED' : `SMOKE TEST FAILED (score: ${scoreNumber}, spans: ${phoneSpans.length})`);
   if (errors.length) {
-    console.log('console/page errors:', errors.slice(0, 5));
+    console.log('errors seen:', errors.slice(0, 5));
   }
   process.exit(ok ? 0 : 1);
 }
