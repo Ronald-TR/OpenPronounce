@@ -32,6 +32,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true  # pulls the self-hosted acoustic encoder (Git LFS)
 
       - uses: actions/setup-node@v4
         with:

@@ -18,7 +18,13 @@ test_env
 # web (client-side spike)
 web/node_modules/
 web/dist/
-web/public/models/
+# self-hosted encoder: only the int8 model (Git LFS) + config.json are tracked;
+# the fp32 export and the fp16 conversion stay local
+web/public/models/**
+!web/public/models/wav2vec2-960h-encoder/
+!web/public/models/wav2vec2-960h-encoder/config.json
+!web/public/models/wav2vec2-960h-encoder/onnx/
+!web/public/models/wav2vec2-960h-encoder/onnx/model_quantized.onnx
 web/tests/fixtures/bench-report.json
 web/tests/fixtures/heard.json
 web/tests/fixtures/calibration/wav/

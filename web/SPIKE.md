@@ -244,10 +244,11 @@ Pages specifics handled here:
   (vendored, MIT, in `web/public/`) adds them client-side and reloads the page
   once — WASM threads keep working. The PWA service worker registration is
   disabled (`injectRegister: false`) so it never competes for the scope.
-- **No self-hosted models in this test deploy**: the acoustic encoder lives in
-  `web/public/models/` (gitignored) and will 404 on Pages. The app degrades
-  gracefully — the score drops the acoustic term and renormalizes over phones
-  (4/7) + words (3/7); the breakdown line shows `acoustic n/a`. The other
-  models (phone recognizer, ASR, piper voice) download from the HF CDN. For a
-  production deploy, publish the encoder ONNX to a CDN/HF repo and point
-  `ENCODER_PATH`/`env.localModelPath` at it.
+- **Self-hosted acoustic encoder**: the int8 encoder (355 MB) is committed via
+  **Git LFS** (`web/public/models/.../model_quantized.onnx`); the Pages deploy
+  checks it out with `lfs: true` and serves it site-relative, so the full
+  0.3/0.4/0.3 score works on GitHub Pages. The fp32 export and the fp16
+  conversion stay untracked (repo size); on the `webgpu` device the encoder
+  degrades fp16 → int8 → wasm through the existing fallback chain. The other
+  models (phone recognizer, ASR, piper voice) download from the HF CDN.
+  Note: Git LFS free tier is 1 GB of storage — this file uses ~35 % of it.
