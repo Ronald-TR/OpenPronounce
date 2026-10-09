@@ -5,6 +5,7 @@
 
 export interface WorkerProgress {
   status: string;
+  model?: string;
   file?: string;
   progress?: number;
   loaded?: number;

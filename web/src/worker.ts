@@ -47,7 +47,7 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
         device: message.device,
         dtype: message.dtype,
         onProgress: (progress: ModelProgress) => {
-          post({ type: 'progress', payload: progress });
+          post({ type: 'progress', model: 'phones', payload: progress });
         },
       });
       const info: SessionInfo = session.info;
@@ -79,6 +79,10 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
     }
 
     if (message.type === 'load-asr') {
+      const reportProgress = (progress: ModelProgress) => {
+        post({ type: 'progress', model: 'asr', payload: progress });
+      };
+      reportProgress({ status: 'initiate', file: 'tokenizer' });
       const processor = await AutoProcessor.from_pretrained(ASR_MODEL_ID);
       const tokenizer = await AutoTokenizer.from_pretrained(ASR_MODEL_ID);
       // TokenizerModel.vocab is the id -> token table
@@ -87,6 +91,7 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
       const model = await Wav2Vec2ForCTC.from_pretrained(ASR_MODEL_ID, {
         device: message.device ?? activeDevice,
         dtype: message.dtype ?? activeDtype,
+        progress_callback: reportProgress,
       });
       asr = { processor, model, idToToken };
       post({ type: 'asr-ready', requestId: message.requestId });
@@ -138,7 +143,9 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
         let lastError: unknown = null;
         for (const [device, dtype] of attempts) {
           try {
-            embedder = await createEmbedder(ENCODER_PATH, dtype, device);
+            embedder = await createEmbedder(ENCODER_PATH, dtype, device, (progress) => {
+              post({ type: 'progress', model: 'encoder', payload: progress });
+            });
             break;
           } catch (error) {
             lastError = error;

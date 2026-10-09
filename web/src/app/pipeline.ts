@@ -145,7 +145,19 @@ export class Pipeline {
     this.status('synthesizing reference (piper, ~63 MB first time)...');
     const referenceStart = performance.now();
     const reference = await synthesizeReference(expectedText, (p) => {
+      this.callbacks.onProgress?.({
+        model: 'piper',
+        status: 'progress',
+        file: 'piper-voice.onnx',
+        loaded: p.loaded,
+        total: p.total,
+      });
       this.status(`downloading piper voice: ${(p.loaded / 1e6).toFixed(0)} / ${(p.total / 1e6).toFixed(0)} MB`);
+    });
+    this.callbacks.onProgress?.({
+      model: 'piper',
+      status: 'done',
+      file: 'piper-voice.onnx',
     });
     const referenceMs = performance.now() - referenceStart;
 

@@ -118,7 +118,32 @@
             </details>
         </section>
 
-        <!-- Settings bar (right side) -->
+        <!-- Download progress popup -->
+    <div id="download-popup" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/40">
+        <div class="bg-white border border-neutral-200 rounded-2xl shadow-xl p-6 w-[24rem] max-w-[calc(100vw-2rem)]">
+            <div class="flex items-center gap-2">
+                <svg class="w-5 h-5 text-accent-500 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-90" fill="currentColor"
+                        d="M4 12a8 8 0 0 1 8-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 0 1 4 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                    </path>
+                </svg>
+                <p class="text-sm font-semibold text-neutral-900">Downloading local models</p>
+            </div>
+            <p id="download-model" class="mt-3 text-sm font-medium text-neutral-700"></p>
+            <div class="mt-2 h-2 rounded-full bg-neutral-100 overflow-hidden">
+                <div id="download-bar" class="h-full bg-accent-500 rounded-full transition-[width] duration-200"
+                    style="width:0%"></div>
+            </div>
+            <div class="mt-2 flex items-center justify-between gap-3 text-xs text-neutral-500">
+                <span id="download-file" class="truncate"></span>
+                <span id="download-pct" class="tabular-nums shrink-0"></span>
+            </div>
+            <p id="download-count" class="mt-1 text-xs text-neutral-400"></p>
+        </div>
+    </div>
+
+    <!-- Settings bar (right side) -->
     <aside id="settings-bar"
         class="fixed right-4 top-24 z-30 w-60 bg-white border border-neutral-200 rounded-2xl p-4 shadow-sm">
         <div class="flex items-center justify-between">

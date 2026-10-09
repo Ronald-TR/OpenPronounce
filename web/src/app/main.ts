@@ -7,6 +7,7 @@
 import '../style.css';
 import { AudioRecorder } from './recorder';
 import { Pipeline, type AnalysisResult, type InferenceDevice } from './pipeline';
+import type { WorkerProgress } from './worker-client';
 import { decodeTo16kMono } from '../core/audio';
 import { enhanceAudio } from '../core/enhance';
 import { synthesizeReference } from '../core/tts';
@@ -150,6 +151,7 @@ async function bootstrap(): Promise<void> {
         setStatus(status);
       }
     },
+    onProgress: (event: WorkerProgress) => trackDownload(event),
   };
   try {
     pipelineReady = Pipeline.create(callbacks, { device: state.device });
@@ -481,7 +483,15 @@ async function playReference(): Promise<void> {
     label.textContent = 'Synthesizing…';
     const reference = await synthesizeReference(expectedText, (p) => {
       label.textContent = `Downloading voice ${(p.loaded / 1e6).toFixed(0)} / ${(p.total / 1e6).toFixed(0)} MB`;
+      trackDownload({
+        model: 'piper',
+        status: 'progress',
+        file: 'piper-voice.onnx',
+        loaded: p.loaded,
+        total: p.total,
+      });
     });
+    trackDownload({ model: 'piper', status: 'done', file: 'piper-voice.onnx' });
 
     if (referenceAudio) {
       referenceAudio.pause();
@@ -873,6 +883,69 @@ function renderHeard(result: AnalysisResult): void {
   $('breakdown').textContent =
     `acoustic ${result.acoustic.meanPerStep.toFixed(2)} · phones ${Math.round((1 - result.phones.phone_error_rate) * 100)} % · words ${Math.round((1 - result.wordErrorRate) * 100)} %`
     + ` — ${('total ' + (t.totalMs / 1000).toFixed(1) + 's')}`;
+}
+
+// ---------------------------------------------------------------- download popup
+
+const DOWNLOAD_LABELS: Record<string, string> = {
+  phones: 'Phone recognizer (wav2vec2 espeak)',
+  asr: 'Word transcription (wav2vec2 960h base)',
+  encoder: 'Acoustic encoder (wav2vec2 960h)',
+  piper: 'Reference voice (piper lessac-medium)',
+};
+
+interface ActiveDownload {
+  label: string;
+  file: string;
+  loaded: number;
+  total: number;
+}
+
+const activeDownloads = new Map<string, ActiveDownload>();
+
+function trackDownload(event: WorkerProgress): void {
+  // worker events nest the transformers.js progress inside `payload`;
+  // pipeline-generated events (piper) are flat
+  const raw = event as WorkerProgress & { payload?: WorkerProgress };
+  const progress = raw.payload ?? raw;
+  const model = raw.model ?? progress.model ?? 'model';
+
+  const key = `${model}:${progress.file ?? ''}`;
+  const total = progress.total ?? 0;
+  const loaded = progress.loaded ?? 0;
+  if (progress.status === 'done' || (total > 0 && loaded >= total)) {
+    activeDownloads.delete(key);
+  } else if (total > 0) {
+    activeDownloads.set(key, {
+      label: DOWNLOAD_LABELS[model] ?? 'Model',
+      file: (progress.file ?? '').split('/').pop() || '',
+      loaded,
+      total,
+    });
+  } else {
+    return; // initiate/download events without sizes carry no useful info
+  }
+  renderDownloadPopup();
+}
+
+function renderDownloadPopup(): void {
+  const popup = $('download-popup');
+  // ignore tiny files (configs, tokenizers): only meaningful downloads count
+  const active = [...activeDownloads.values()].filter((d) => d.total > 1024 * 1024);
+  if (!active.length) {
+    popup.classList.add('hidden');
+    return;
+  }
+
+  // show the file with the most bytes left to fetch
+  const current = active.reduce((a, b) => (b.total - b.loaded > a.total - a.loaded ? b : a));
+  const pct = Math.min(100, (current.loaded / current.total) * 100);
+  ($('download-model') as HTMLElement).textContent = current.label;
+  ($('download-file') as HTMLElement).textContent = `${current.file} · ${active.length} file${active.length > 1 ? 's' : ''} left`;
+  ($('download-bar') as HTMLElement).style.width = `${pct.toFixed(1)}%`;
+  ($('download-pct') as HTMLElement).textContent =
+    `${pct.toFixed(0)} % · ${(current.loaded / 1e6).toFixed(0)} / ${(current.total / 1e6).toFixed(0)} MB`;
+  popup.classList.remove('hidden');
 }
 
 // ---------------------------------------------------------------- settings bar

@@ -45,11 +45,30 @@ async function main(): Promise<void> {
   console.log('crossOriginIsolated:', isolated);
 
   console.log('waiting for local models (~830 MB on a fresh profile)...');
+  // the download popup must show up while weights are being fetched
+  await page.waitForFunction(
+    () => {
+      const popup = document.getElementById('download-popup');
+      return popup !== null && !popup.classList.contains('hidden')
+        && (document.getElementById('download-pct')?.textContent ?? '').includes('%');
+    },
+    undefined,
+    { timeout: 90_000 },
+  );
+  const popupModel = await page.textContent('#download-model');
+  const popupPct = await page.textContent('#download-pct');
+  console.log(`download popup: ${popupModel?.trim()} · ${popupPct?.trim()}`);
+
   await page.waitForFunction(
     () => document.getElementById('record-hint')?.textContent === 'Tap to record, then say the sentence',
     undefined,
     { timeout: 25 * 60_000 },
   );
+  // once everything is loaded, the popup is gone
+  const popupHiddenAfterLoad = await page.evaluate(
+    () => document.getElementById('download-popup')?.classList.contains('hidden') ?? false,
+  );
+  console.log('popup hidden after load:', popupHiddenAfterLoad);
 
   await page.fill('#expected-text', 'I would like a cup of coffee, please.');
   await page.setInputFiles('#file-input', path.join(FIXTURES_DIR, 'en-coffee.wav'));
@@ -168,7 +187,7 @@ async function main(): Promise<void> {
   const scoreNumber = Number(score);
   const ok = heardText.startsWith('aɪwʊdlaɪk') && phoneSpans.length >= 20 && scoreNumber > 75
     && listenLabel === 'Playing…' && canvasWidths.phoneme > 0 && Boolean(visemeSrc) && visemeSrc !== 'rest.png'
-    && speedValue === '0.5';
+    && speedValue === '0.5' && popupHiddenAfterLoad;
   console.log(ok ? 'SMOKE TEST PASSED' : `SMOKE TEST FAILED (score: ${scoreNumber}, spans: ${phoneSpans.length}, listen: ${listenLabel}, chart: ${canvasWidths.phoneme}px, viseme: ${visemeSrc}, speed: ${speedValue})`);
   if (errors.length) {
     console.log('errors seen:', errors.slice(0, 5));

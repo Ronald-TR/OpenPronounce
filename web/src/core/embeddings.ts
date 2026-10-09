@@ -38,6 +38,12 @@ export function normalizeUtterance(audio: Float32Array): Float32Array {
 export type EmbedderDevice = 'wasm' | 'webgpu';
 export type EmbedderDtype = 'q8' | 'q4' | 'q4f16' | 'fp16' | 'fp32' | 'auto' | 'int8' | 'uint8' | 'bnb4';
 
+export interface CreateEmbedderOptions {
+  dtype?: EmbedderDtype;
+  device?: EmbedderDevice;
+  onProgress?: (progress: { status: string; file?: string; progress?: number; loaded?: number; total?: number }) => void;
+}
+
 /**
  * Load the local encoder ONNX via transformers.js. `modelId` is either a
  * directory under `env.localModelPath` (Node) or an origin-relative path
@@ -47,12 +53,13 @@ export async function createEmbedder(
   modelId: string,
   dtype: EmbedderDtype = 'q8',
   device: EmbedderDevice = 'wasm',
+  onProgress?: CreateEmbedderOptions['onProgress'],
 ): Promise<Embedder> {
   // transformers.js in Node runs on onnxruntime-node, which calls its device "cpu"
   const resolvedDevice = typeof process !== 'undefined' && Boolean(process.versions?.node)
     ? 'cpu'
     : device;
-  const model = await AutoModel.from_pretrained(modelId, { dtype, device: resolvedDevice });
+  const model = await AutoModel.from_pretrained(modelId, { dtype, device: resolvedDevice, progress_callback: onProgress });
   return {
     modelId,
     dtype,
