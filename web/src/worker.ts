@@ -8,12 +8,12 @@
  *               { type: 'asr-ready' }                  { type: 'transcript', payload }
  *               { type: 'result', payload }            { type: 'error', message }
  */
-import { AutoProcessor, AutoTokenizer, Wav2Vec2ForCTC, env } from '@huggingface/transformers';
+import { AutoProcessor, AutoTokenizer, Wav2Vec2ForCTC } from '@huggingface/transformers';
 import { createSession, type Device, type Dtype, type ModelProgress, type Session, type SessionInfo } from './core/session';
 import { createEmbedder, acousticDistance, type Embedder, type EmbedderDevice } from './core/embeddings';
 
 const ASR_MODEL_ID = 'onnx-community/wav2vec2-base-960h-ONNX';
-const ENCODER_PATH = 'models/wav2vec2-960h-encoder';
+import { ENCODER_MODEL_ID as ENCODER_PATH } from './core/embeddings';
 
 let session: Session | null = null;
 let asr: {
@@ -132,9 +132,8 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
     }
     if (message.type === 'acoustic') {
       // the encoder lives in this worker too: a single ORT runtime keeps
-      // memory and thread pressure under control
-      env.allowLocalModels = true;
-      env.localModelPath = import.meta.env.BASE_URL;
+      // memory and thread pressure under control; its weights come from S3
+      // (createEmbedder redirects transformers.js for this load only)
       if (!embedder) {
         // graceful degradation: webgpu fp16 -> webgpu int8 -> wasm int8
         const attempts: Array<[EmbedderDevice, Dtype]> = activeDevice === 'webgpu'
