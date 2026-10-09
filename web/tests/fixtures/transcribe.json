@@ -1,0 +1,20 @@
+{
+  "lang": "en",
+  "cases": [
+    {
+      "learner": "en-hello.wav",
+      "text": "Hello, how are you?",
+      "transcription": "HELLO HOW ARE YOU"
+    },
+    {
+      "learner": "en-coffee.wav",
+      "text": "I would like a cup of coffee, please.",
+      "transcription": "I WOULD LIKE A CUP OF COFFEE PLEASE"
+    },
+    {
+      "learner": "en-weather.wav",
+      "text": "The weather is lovely today, and I am going for a walk in the park.",
+      "transcription": "THE WEATHER IS LOVELY TO DAY AND I AM GOING FOR A WALK IN THE PARK"
+    }
+  ]
+}

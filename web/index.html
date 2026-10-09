@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenPronounce: say a sentence, see which sounds went wrong</title>
+    <meta name="description"
+        content="Open-source, phoneme-level pronunciation feedback that runs entirely in your browser. Record a sentence and see which sounds went wrong.">
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+    <link rel="manifest" href="manifest.webmanifest">
+    <!-- Enables cross-origin isolation (WASM threads) on hosts that cannot set
+         COOP/COEP headers, like GitHub Pages. Reloads the page once. -->
+    <script src="coi-serviceworker.js"></script>
+    <meta name="theme-color" content="#ea580c">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-feature-settings: "cv11", "ss01"; }
+
+        /* Recording pulse */
+        @keyframes rec-pulse {
+            0% { box-shadow: 0 0 0 0 rgba(234, 88, 12, 0.45); }
+            70% { box-shadow: 0 0 0 22px rgba(234, 88, 12, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(234, 88, 12, 0); }
+        }
+        .is-recording { animation: rec-pulse 1.4s ease-out infinite; }
+
+        /* Indeterminate progress line */
+        @keyframes progress-slide {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(400%); }
+        }
+        .progress-line::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            width: 25%;
+            background: #ea580c;
+            border-radius: 9999px;
+            animation: progress-slide 1.6s ease-in-out infinite;
+        }
+
+        .reveal { animation: reveal 0.5s ease-out both; }
+        @keyframes reveal {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: none; }
+        }
+        #score-ring { transition: stroke-dashoffset 1s cubic-bezier(.2, .7, .2, 1); }
+
+        .chip { transition: transform .12s ease, box-shadow .12s ease; }
+        .chip:hover { transform: translateY(-1px); }
+        .chip[aria-pressed="true"] { box-shadow: 0 0 0 2px #fff, 0 0 0 4px #ea580c; }
+
+        details > summary { list-style: none; }
+        details > summary::-webkit-details-marker { display: none; }
+        details[open] .chev { transform: rotate(180deg); }
+        .chev { transition: transform .2s ease; }
+
+        @media (prefers-reduced-motion: reduce) {
+            .is-recording, .progress-line::after, .reveal { animation: none; }
+            #score-ring { transition: none; }
+        }
+    </style>
+</head>
+
+<body class="bg-[#fcfcfb] text-neutral-800 min-h-screen antialiased">
+
+    <!-- Header -->
+    <header class="max-w-2xl mx-auto px-5 pt-6 pb-2 flex items-center justify-between">
+        <a href="/" class="flex items-center gap-2 font-semibold tracking-tight text-neutral-900">
+            <img src="assets/logo.svg" alt="" class="w-6 h-6">
+            OpenPronounce
+        </a>
+        <div class="flex items-center gap-4">
+            <a href="/spike.html" class="text-sm text-neutral-500 hover:text-neutral-800 transition-colors">Diagnostics</a>
+            <a href="https://github.com/Halleck45/OpenPronounce" target="_blank" rel="noopener"
+                class="inline-flex items-center gap-2 text-sm text-neutral-600 hover:text-neutral-900 transition-colors">
+                <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path fill-rule="evenodd"
+                        d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"
+                        clip-rule="evenodd" />
+                </svg>
+                <span class="hidden sm:inline">GitHub</span>
+            </a>
+        </div>
+    </header>
+
+    <main class="max-w-2xl mx-auto px-5 pb-16">
+
+        <!-- Headline -->
+        <section class="pt-8 pb-6">
+            <h1 class="text-3xl sm:text-[2.6rem] sm:leading-[1.15] font-bold tracking-tight text-neutral-900">
+                Say a sentence.<br> See which sounds went wrong.
+            </h1>
+            <p class="mt-3 text-neutral-600 text-base sm:text-lg">
+                Phoneme-level feedback that runs <strong>entirely in your browser</strong> — your voice never leaves
+                this page. English first, more languages later.
+            </p>
+        </section>
+
+        <!-- Models -->
+        <section class="mb-4 bg-white border border-neutral-200 rounded-2xl p-4 sm:p-5">
+            <details id="models-details">
+                <summary class="cursor-pointer select-none inline-flex items-center gap-2 text-sm font-medium text-neutral-600 hover:text-neutral-900">
+                    <svg class="chev w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                    </svg>
+                    Local AI models
+                    <span id="models-status" class="font-normal text-neutral-400 text-xs"></span>
+                </summary>
+                <ul id="models-list" class="mt-3 grid gap-1.5 text-sm"></ul>
+                <div class="mt-3 flex flex-wrap items-center gap-3">
+                    <span id="storage-info" class="text-xs text-neutral-500"></span>
+                    <button id="models-clear" type="button"
+                        class="ml-auto text-xs px-3 py-1.5 rounded-lg border border-neutral-300 text-neutral-600 hover:bg-neutral-50 transition">
+                        Delete downloaded models
+                    </button>
+                </div>
+            </details>
+        </section>
+
+        <!-- Download progress popup -->
+    <div id="download-popup" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/40">
+        <div class="bg-white border border-neutral-200 rounded-2xl shadow-xl p-6 w-[24rem] max-w-[calc(100vw-2rem)]">
+            <div class="flex items-center gap-2">
+                <svg class="w-5 h-5 text-accent-500 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-90" fill="currentColor"
+                        d="M4 12a8 8 0 0 1 8-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 0 1 4 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                    </path>
+                </svg>
+                <p class="text-sm font-semibold text-neutral-900">Downloading local models</p>
+            </div>
+            <p id="download-model" class="mt-3 text-sm font-medium text-neutral-700"></p>
+            <div class="mt-2 h-2 rounded-full bg-neutral-100 overflow-hidden">
+                <div id="download-bar" class="h-full bg-accent-500 rounded-full transition-[width] duration-200"
+                    style="width:0%"></div>
+            </div>
+            <div class="mt-2 flex items-center justify-between gap-3 text-xs text-neutral-500">
+                <span id="download-file" class="truncate"></span>
+                <span id="download-pct" class="tabular-nums shrink-0"></span>
+            </div>
+            <p id="download-count" class="mt-1 text-xs text-neutral-400"></p>
+        </div>
+    </div>
+
+    <!-- Settings bar (right side) -->
+    <aside id="settings-bar"
+        class="fixed right-4 top-24 z-30 w-60 bg-white border border-neutral-200 rounded-2xl p-4 shadow-sm">
+        <div class="flex items-center justify-between">
+            <p class="text-sm font-semibold text-neutral-800">Settings</p>
+            <button id="settings-toggle" type="button" aria-label="Toggle settings" aria-expanded="true"
+                class="text-neutral-400 hover:text-neutral-700 transition-colors">
+                <svg class="chev w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                </svg>
+            </button>
+        </div>
+        <div id="settings-body" class="mt-3 grid gap-4">
+            <label class="grid gap-1 text-sm">
+                <span class="text-neutral-600">Device</span>
+                <select id="device-setting"
+                    class="bg-neutral-50 border border-neutral-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent-500/40">
+                    <option value="wasm" selected>wasm (default)</option>
+                    <option value="webgpu">webgpu (experimental)</option>
+                </select>
+                <span id="device-note" class="text-xs text-neutral-400">webgpu loads fp16 weights (~1.3 GB extra).</span>
+            </label>
+            <label class="grid gap-1 text-sm">
+                <span class="text-neutral-600">Speak speed</span>
+                <select id="speak-speed-setting"
+                    class="bg-neutral-50 border border-neutral-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent-500/40">
+                    <option value="0.25">0.25x</option>
+                    <option value="0.5">0.5x</option>
+                    <option value="1" selected>1x</option>
+                    <option value="1.25">1.25x</option>
+                    <option value="1.5">1.5x</option>
+                </select>
+                <span class="text-xs text-neutral-400">Playback speed of "Hear the reference".</span>
+            </label>
+        </div>
+    </aside>
+
+    <!-- Practice card -->
+        <section id="practice" class="bg-white border border-neutral-200 rounded-2xl p-5 sm:p-7 relative">
+            <div id="drop-overlay"
+                class="hidden absolute inset-0 rounded-2xl border-2 border-dashed border-accent-500 bg-accent-50/90 items-center justify-center text-accent-700 font-medium pointer-events-none z-10">
+                Drop your audio file
+            </div>
+
+            <div class="flex items-center justify-between gap-4 mb-2">
+                <label for="expected-text" class="text-sm font-medium text-neutral-700">Sentence to say</label>
+                <span class="text-xs px-2.5 py-1.5 rounded-lg bg-neutral-50 border border-neutral-200 text-neutral-500">English</span>
+            </div>
+
+            <textarea id="expected-text" rows="2" spellcheck="false" placeholder="Type a sentence, or pick one below"
+                class="w-full text-lg sm:text-xl leading-snug px-4 py-3 border border-neutral-200 rounded-xl bg-neutral-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-accent-500/40 focus:border-accent-500 resize-none">Hello, how are you?</textarea>
+
+            <div class="mt-3 flex flex-wrap items-center gap-2" id="examples">
+                <span class="text-xs text-neutral-500 mr-1">Try:</span>
+            </div>
+
+            <div id="text-hint" class="hidden mt-2 text-sm text-red-600" role="alert"></div>
+
+            <!-- Microphone -->
+            <div class="mt-8 flex flex-col items-center text-center">
+                <div class="flex items-center gap-4">
+                    <button id="record-btn" type="button" aria-label="Record" disabled
+                        class="w-24 h-24 rounded-full bg-accent-500 text-white flex items-center justify-center hover:bg-accent-600 active:scale-95 disabled:opacity-50 disabled:cursor-wait focus:outline-none focus-visible:ring-4 focus-visible:ring-accent-500/40 transition">
+                        <svg id="mic-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                            stroke="currentColor" class="w-10 h-10">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3Z" />
+                        </svg>
+                        <svg id="stop-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"
+                            class="w-9 h-9 hidden">
+                            <rect x="6" y="6" width="12" height="12" rx="2" />
+                        </svg>
+                    </button>
+                    <div class="relative">
+                        <button id="mic-select-btn" type="button" aria-label="Choose microphone" aria-haspopup="listbox"
+                            aria-expanded="false" title="Choose microphone" disabled
+                            class="w-11 h-11 rounded-full border border-neutral-200 bg-white text-neutral-500 flex items-center justify-center hover:text-neutral-900 hover:border-neutral-300 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 transition">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                                stroke="currentColor" class="w-5 h-5">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
+                            </svg>
+                        </button>
+                        <div id="mic-select-menu" role="listbox" aria-label="Microphone"
+                            class="hidden absolute z-20 top-full mt-2 left-1/2 -translate-x-1/2 w-64 max-w-[calc(100vw-2.5rem)] bg-white border border-neutral-200 rounded-xl shadow-lg p-1.5 text-left">
+                        </div>
+                    </div>
+                </div>
+                <p id="record-hint" class="mt-3 text-sm text-neutral-600">Preparing local AI models…</p>
+                <p id="record-timer" class="hidden mt-1 text-sm tabular-nums text-neutral-500">00:00</p>
+                <p id="record-error" class="hidden mt-2 text-sm text-red-600 max-w-sm" role="alert"></p>
+                <p id="mic-name" class="mt-1 text-xs text-neutral-400 max-w-xs truncate"></p>
+                <label class="mt-4 inline-flex items-center gap-2 text-sm text-neutral-600 cursor-pointer select-none"
+                    title="When enabled, recording stops by itself after two seconds of silence (or after 60 s)">
+                    <input id="auto-stop-toggle" type="checkbox" checked
+                        class="w-4 h-4 rounded border-neutral-300 accent-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/40 cursor-pointer">
+                    Stop automatically on silence
+                </label>
+                <label class="mt-2 inline-flex items-center gap-2 text-sm text-neutral-600 cursor-pointer select-none"
+                    title="High-pass filter, presence EQ, gentle compression and spectral noise gating before the analysis">
+                    <input id="enhance-toggle" type="checkbox" checked
+                        class="w-4 h-4 rounded border-neutral-300 accent-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/40 cursor-pointer">
+                    Reduce noise &amp; enhance voice
+                </label>
+            </div>
+
+            <!-- Secondary actions -->
+            <div class="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm">
+                <button id="listen-btn" type="button"
+                    class="inline-flex items-center gap-1.5 text-neutral-600 hover:text-neutral-900 transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                        stroke="currentColor" class="w-4 h-4">
+                        <path stroke-linecap="round" stroke-linejoin="round"
+                            d="M19.114 5.636a9 9 0 0 1 0 12.728M16.463 8.288a5.25 5.25 0 0 1 0 7.424M6.75 8.25l4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z" />
+                    </svg>
+                    <span data-role="listen.label">Hear the reference</span>
+                </button>
+                <span class="text-neutral-300 hidden sm:inline" aria-hidden="true">|</span>
+                <button id="upload-btn" type="button" disabled
+                    class="inline-flex items-center gap-1.5 text-neutral-600 hover:text-neutral-900 disabled:opacity-50 transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                        stroke="currentColor" class="w-4 h-4">
+                        <path stroke-linecap="round" stroke-linejoin="round"
+                            d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
+                    </svg>
+                    Upload an audio file
+                </button>
+                <input type="file" id="file-input" accept="audio/*" class="hidden">
+            </div>
+
+            <!-- Uploaded / recorded audio -->
+            <div id="audio-review" class="hidden mt-6 pt-5 border-t border-neutral-100">
+                <div class="flex flex-col sm:flex-row items-center gap-3">
+                    <audio id="audio-player" controls class="w-full sm:flex-1 h-10"></audio>
+                    <button id="analyze-btn" type="button"
+                        class="hidden shrink-0 px-5 py-2.5 rounded-xl bg-accent-500 text-white font-medium hover:bg-accent-600 disabled:opacity-50 disabled:cursor-wait transition">
+                        Analyze
+                    </button>
+                </div>
+                <p id="file-name" class="mt-2 text-xs text-neutral-500 truncate"></p>
+            </div>
+        </section>
+
+        <!-- Loading -->
+        <section id="loading" class="hidden mt-6 bg-white border border-neutral-200 rounded-2xl p-6 sm:p-7" aria-live="polite">
+            <p id="loading-step" class="text-neutral-700 font-medium">Preparing the analysis</p>
+            <div class="progress-line relative mt-3 h-1 rounded-full bg-neutral-100 overflow-hidden"></div>
+            <p class="mt-3 text-xs text-neutral-500">Everything runs locally in this tab. The first run downloads the models; later runs are fully offline.</p>
+        </section>
+
+        <!-- Error -->
+        <section id="error" class="hidden mt-6 bg-white border border-red-200 rounded-2xl p-6 sm:p-7" role="alert">
+            <p class="font-medium text-neutral-900">That did not work.</p>
+            <p id="error-message" class="mt-1 text-neutral-600">The analysis failed. Try again in a moment.</p>
+            <button id="retry-btn" type="button"
+                class="mt-4 px-4 py-2 rounded-xl border border-neutral-300 text-neutral-700 hover:bg-neutral-50 transition">
+                Try again
+            </button>
+        </section>
+
+        <!-- Result -->
+        <section id="result" class="hidden mt-6 bg-white border border-neutral-200 rounded-2xl p-5 sm:p-7">
+
+            <!-- Score -->
+            <div class="flex flex-col sm:flex-row items-center gap-6 sm:gap-8">
+                <div class="relative w-36 h-36 shrink-0">
+                    <svg class="w-36 h-36 -rotate-90" viewBox="0 0 144 144" aria-hidden="true">
+                        <circle cx="72" cy="72" r="62" stroke="#f0efed" stroke-width="10" fill="none" />
+                        <circle id="score-ring" cx="72" cy="72" r="62" stroke="#ea580c" stroke-width="10" fill="none"
+                            stroke-linecap="round" stroke-dasharray="389.6" stroke-dashoffset="389.6" />
+                    </svg>
+                    <div class="absolute inset-0 flex flex-col items-center justify-center">
+                        <span id="score-value" class="text-5xl font-bold tracking-tight tabular-nums text-neutral-900">0</span>
+                        <span class="text-xs text-neutral-500 -mt-0.5">out of 100</span>
+                    </div>
+                </div>
+                <div class="text-center sm:text-left">
+                    <p id="verdict" class="text-xl sm:text-2xl font-semibold text-neutral-900">Score</p>
+                    <p id="verdict-sub" class="mt-1 text-neutral-600">Tap a word to see its sounds.</p>
+                    <div id="word-chips" class="mt-4 flex flex-wrap justify-center sm:justify-start gap-2"></div>
+                </div>
+            </div>
+
+            <!-- Word detail -->
+            <div id="word-detail" class="hidden mt-6 rounded-xl border border-neutral-200 bg-neutral-50 p-4 sm:p-5">
+                <div class="flex flex-col sm:flex-row gap-5">
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-baseline gap-3 flex-wrap">
+                            <span id="detail-word" class="text-2xl font-semibold text-neutral-900">word</span>
+                            <span id="detail-status" class="text-sm font-medium"></span>
+                        </div>
+                        <dl class="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-base">
+                            <dt class="text-neutral-500 text-sm pt-0.5">Expected</dt>
+                            <dd id="detail-expected" class="font-mono text-lg tracking-wide"></dd>
+                            <dt class="text-neutral-500 text-sm pt-0.5">You said</dt>
+                            <dd id="detail-heard" class="font-mono text-lg tracking-wide"></dd>
+                        </dl>
+                        <p id="detail-note" class="mt-3 text-sm text-neutral-600"></p>
+                        <button id="detail-listen" type="button"
+                            class="mt-3 inline-flex items-center gap-1.5 text-sm text-accent-700 hover:text-accent-600 font-medium">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                                stroke="currentColor" class="w-4 h-4">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M19.114 5.636a9 9 0 0 1 0 12.728M16.463 8.288a5.25 5.25 0 0 1 0 7.424M6.75 8.25l4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z" />
+                            </svg>
+                            Hear it and watch the mouth
+                        </button>
+                    </div>
+                    <div class="shrink-0 flex flex-col items-center">
+                        <img id="viseme-image" alt="Mouth shape for the selected sound"
+                            class="w-28 h-28 rounded-xl object-contain bg-white border border-neutral-200" />
+                        <span class="mt-1 text-[11px] text-neutral-400">mouth shapes</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- What we heard -->
+            <div class="mt-6 grid gap-3 text-sm">
+                <div class="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-4">
+                    <span class="text-neutral-500 sm:w-24 shrink-0">We heard</span>
+                    <span id="transcript" class="text-neutral-800 font-medium"></span>
+                </div>
+                <div class="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-4">
+                    <span class="text-neutral-500 sm:w-24 shrink-0">Your sounds</span>
+                    <span id="heard-phones" class="font-mono text-base leading-relaxed"></span>
+                </div>
+                <div class="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-4">
+                    <span class="text-neutral-500 sm:w-24 shrink-0">Breakdown</span>
+                    <span id="breakdown" class="text-neutral-600"></span>
+                </div>
+            </div>
+
+            <!-- Details -->
+            <details id="details" class="mt-6 border-t border-neutral-100 pt-4">
+                <summary class="cursor-pointer select-none inline-flex items-center gap-2 text-sm font-medium text-neutral-600 hover:text-neutral-900">
+                    <svg class="chev w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                    </svg>
+                    Details: phoneme trace, pitch and energy
+                </summary>
+                <div class="mt-5 grid gap-6">
+                    <div>
+                        <p class="text-xs font-medium text-neutral-500 mb-2">Phoneme trace, reference vs you (aligned)</p>
+                        <div class="relative h-44"><canvas id="phoneme-chart"></canvas></div>
+                    </div>
+                    <div>
+                        <p class="text-xs font-medium text-neutral-500 mb-2">Pitch (F0, Hz)</p>
+                        <div class="relative h-32"><canvas id="f0-chart"></canvas></div>
+                    </div>
+                    <div>
+                        <p class="text-xs font-medium text-neutral-500 mb-2">Energy</p>
+                        <div class="relative h-32"><canvas id="energy-chart"></canvas></div>
+                    </div>
+                    <p class="text-xs text-neutral-500">
+                        Phones are IPA. A sound is flagged when the recognizer is confident it heard something else;
+                        the percentage is that confidence, not a grade.
+                    </p>
+                </div>
+            </details>
+
+            <div class="mt-6 flex flex-wrap gap-3">
+                <button id="again-btn" type="button"
+                    class="px-5 py-2.5 rounded-xl bg-accent-500 text-white font-medium hover:bg-accent-600 transition">
+                    Try again
+                </button>
+                <button id="replay-btn" type="button"
+                    class="px-5 py-2.5 rounded-xl border border-neutral-300 text-neutral-700 hover:bg-neutral-50 transition">
+                    Replay my recording
+                </button>
+            </div>
+        </section>
+    </main>
+
+    <footer class="max-w-2xl mx-auto px-5 pb-10 text-xs text-neutral-500 flex flex-wrap items-center gap-x-4 gap-y-2">
+        <a href="https://github.com/Halleck45/OpenPronounce" target="_blank" rel="noopener" class="hover:text-neutral-800">GitHub</a>
+        <span aria-hidden="true">·</span>
+        <span>MIT</span>
+        <span aria-hidden="true">·</span>
+        <span>100% client-side — audio never leaves your device</span>
+    </footer>
+
+    <script type="module" src="/src/app/main.ts"></script>
+</body>
+
+</html>

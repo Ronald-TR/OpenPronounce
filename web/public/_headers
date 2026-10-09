@@ -1,0 +1,5 @@
+# COOP/COEP: required for ONNX Runtime Web WASM threads (SharedArrayBuffer).
+# GitHub Pages cannot set these headers; Netlify and Cloudflare Pages can.
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
