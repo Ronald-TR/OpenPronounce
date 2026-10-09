@@ -56,6 +56,9 @@ jobs:
         run: npm run build
         env:
           VITE_BASE: /${{ github.event.repository.name }}/
+          # flip to 's3' after the models are uploaded to the bucket and CORS
+          # is configured; 'hf' keeps the live site working meanwhile
+          VITE_MODELS_SOURCE: hf
 
       - uses: actions/upload-pages-artifact@v3
         with:

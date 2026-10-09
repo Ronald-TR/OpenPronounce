@@ -7,8 +7,10 @@
 import { AutoProcessor, Wav2Vec2ForCTC, env, type Tensor } from '@huggingface/transformers';
 import { decodeCtc, logSoftmaxLastDim, type PhoneRecognition } from './phones';
 
-export const MODEL_ID = 'onnx-community/wav2vec2-lv-60-espeak-cv-ft-ONNX';
-const VOCAB_URL = `https://huggingface.co/${MODEL_ID}/resolve/main/vocab.json`;
+import { phoneVocabUrl, resolveModels } from './config';
+
+const MODEL_ID = resolveModels().phoneModelId;
+const VOCAB_URL = phoneVocabUrl();
 
 env.allowLocalModels = false;
 

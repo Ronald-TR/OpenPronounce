@@ -126,12 +126,13 @@ export class Pipeline {
     const prosodyAudio = learnerAudio.slice();
 
     // 1. phones
-    this.status('recognizing phones...');
+    this.status('recognizing phones: requesting...');
     const phonesStart = performance.now();
     const phonesResponse = await this.worker.request<PhonesResponse>(
       { type: 'infer', audio: learnerAudio },
       [learnerAudio.buffer],
     );
+    this.status(`phones done (${((performance.now() - phonesStart) / 1000).toFixed(2)}s)`);
     const phonesMs = performance.now() - phonesStart;
 
     // 2. word transcription

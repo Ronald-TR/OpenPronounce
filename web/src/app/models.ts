@@ -13,7 +13,7 @@ export interface ModelInfo {
   kind: 'worker' | 'piper' | 'encoder';
 }
 
-/** First-visit download sizes (int8/medium variants). */
+/** First-visit download sizes (int8 on wasm; fp16 variants are larger). */
 export const MODELS: ModelInfo[] = [
   { id: 'phones', label: 'Phone recognizer (wav2vec2 espeak)', sizeMb: 318, kind: 'worker' },
   { id: 'encoder', label: 'Acoustic encoder (wav2vec2 960h)', sizeMb: 355, kind: 'encoder' },

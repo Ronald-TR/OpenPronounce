@@ -2,17 +2,8 @@
  * Acoustic embeddings: the wav2vec2-large-960h ENCODER (the same module the
  * Python pipeline uses, self-hosted as ONNX) plus the DTW acoustic distance.
  */
-import { AutoModel, env, Tensor, type Tensor as TensorType } from '@huggingface/transformers';
+import { AutoModel, Tensor, type Tensor as TensorType } from '@huggingface/transformers';
 import { fastdtw } from './dtw';
-
-// Self-hosted encoder weights (S3). The {model} placeholder matches the
-// transformers.js remotePathTemplate, so ONLY the encoder is redirected —
-// the phone recognizer and ASR models keep downloading from the HF hub.
-export const ENCODER_REMOTE_HOST = 'https://meu-bucket-c1f5135e.s3.us-east-1.amazonaws.com';
-export const ENCODER_REMOTE_TEMPLATE = '{model}/';
-export const ENCODER_MODEL_ID = 'wav2vec2-960h-encoder';
-
-const IS_NODE = typeof process !== 'undefined' && Boolean(process.versions?.node);
 
 export interface Embedding {
   frames: number;
@@ -69,29 +60,11 @@ export async function createEmbedder(
     ? 'cpu'
     : device;
 
-  const load = () => AutoModel.from_pretrained(
-    IS_NODE ? modelId : ENCODER_MODEL_ID,
+  // the worker configures env (remote host or local path) for all models
+  const model = await AutoModel.from_pretrained(
+    modelId,
     { dtype, device: resolvedDevice, progress_callback: onProgress },
   );
-
-  let model;
-  if (IS_NODE) {
-    // calibration/tests read the encoder from the local models folder
-    model = await load();
-  } else {
-    // point transformers.js at the S3 bucket just for this load: env is
-    // worker-global and the phone/ASR models still need the HF hub
-    const previousHost = env.remoteHost;
-    const previousTemplate = env.remotePathTemplate;
-    env.remoteHost = ENCODER_REMOTE_HOST;
-    env.remotePathTemplate = ENCODER_REMOTE_TEMPLATE;
-    try {
-      model = await load();
-    } finally {
-      env.remoteHost = previousHost;
-      env.remotePathTemplate = previousTemplate;
-    }
-  }
   return {
     modelId,
     dtype,
@@ -141,4 +114,4 @@ export function acousticDistance(a: Embedding, b: Embedding): AcousticDistance {
 
 type Point = number[];
 
-export { env };
+

@@ -270,14 +270,23 @@ async function filterAndCompress(audio: Float32Array, sampleRate: number): Promi
  * Full enhancement chain: voice filters + noise gate + peak normalization.
  * Short clips (< 0.3 s) are returned unchanged.
  */
-export async function enhanceAudio(audio: Float32Array, sampleRate = 16000): Promise<Float32Array> {
+export async function enhanceAudio(
+  audio: Float32Array,
+  sampleRate = 16000,
+  onStage?: (stage: string) => void,
+): Promise<Float32Array> {
   if (audio.length < sampleRate * 0.3) {
     return audio;
   }
   try {
+    onStage?.('filters + compressor');
     const filtered = await filterAndCompress(audio, sampleRate);
+    onStage?.('noise gate');
     const denoised = spectralGate(filtered, sampleRate);
-    return normalizePeak(denoised);
+    onStage?.('normalization');
+    const normalized = normalizePeak(denoised);
+    onStage?.('done');
+    return normalized;
   } catch {
     return audio; // enhancement must never break the analysis
   }

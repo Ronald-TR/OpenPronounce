@@ -8,12 +8,25 @@
  *               { type: 'asr-ready' }                  { type: 'transcript', payload }
  *               { type: 'result', payload }            { type: 'error', message }
  */
-import { AutoProcessor, AutoTokenizer, Wav2Vec2ForCTC } from '@huggingface/transformers';
+import { AutoProcessor, AutoTokenizer, Wav2Vec2ForCTC, env } from '@huggingface/transformers';
 import { createSession, type Device, type Dtype, type ModelProgress, type Session, type SessionInfo } from './core/session';
 import { createEmbedder, acousticDistance, type Embedder, type EmbedderDevice } from './core/embeddings';
+import { MODEL_DIR_IDS, resolveModels } from './core/config';
 
-const ASR_MODEL_ID = 'onnx-community/wav2vec2-base-960h-ONNX';
-import { ENCODER_MODEL_ID as ENCODER_PATH } from './core/embeddings';
+// one global resolution for every model in this worker (phone, ASR, encoder)
+const models = resolveModels();
+env.allowLocalModels = models.allowLocalModels;
+env.localModelPath = models.localModelPath;
+env.remoteHost = models.remoteHost;
+env.remotePathTemplate = models.remotePathTemplate;
+if (models.allowLocalModels) {
+  // Chromium's Cache.put fails on the big local files ("Unexpected internal
+  // error"); local serving is instant anyway, so skip the cache entirely
+  env.useBrowserCache = false;
+}
+
+const ASR_MODEL_ID = models.asrModelId;
+const ENCODER_PATH = MODEL_DIR_IDS.encoder;
 
 let session: Session | null = null;
 let asr: {

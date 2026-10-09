@@ -556,8 +556,9 @@ async function analyze(): Promise<void> {
     let audio = await decodeTo16kMono(state.blob);
     if (state.enhance) {
       setStatus('reducing noise & enhancing voice...');
-      audio = await enhanceAudio(audio);
+      audio = await enhanceAudio(audio, 16000, (stage) => setStatus(`enhancing: ${stage}`));
     }
+    setStatus('starting analysis...');
     const currentPipeline = await pipelineReady!;
     const result = await currentPipeline.analyze(audio, expectedText);
     state.result = result;

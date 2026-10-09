@@ -39,36 +39,50 @@ async function main(): Promise<void> {
       console.log('  [page]', text);
     }
   });
+  page.on('pageerror', () => { });
 
   await page.goto(url);
   const isolated = await page.evaluate('self.crossOriginIsolated');
   console.log('crossOriginIsolated:', isolated);
 
-  console.log('waiting for local models (~830 MB on a fresh profile)...');
-  // the download popup must show up while weights are being fetched
-  await page.waitForFunction(
-    () => {
-      const popup = document.getElementById('download-popup');
-      return popup !== null && !popup.classList.contains('hidden')
-        && (document.getElementById('download-pct')?.textContent ?? '').includes('%');
-    },
-    undefined,
-    { timeout: 90_000 },
-  );
-  const popupModel = await page.textContent('#download-model');
-  const popupPct = await page.textContent('#download-pct');
-  console.log(`download popup: ${popupModel?.trim()} · ${popupPct?.trim()}`);
+  console.log('waiting for local models...');
+  // when models come over the network the download popup shows progress;
+  // in the local mode they load from the preview server almost instantly
+  const popupEarly = await page.evaluate(() => {
+    const popup = document.getElementById('download-popup');
+    return popup !== null && !popup.classList.contains('hidden');
+  });
+  console.log('download popup visible during load:', popupEarly);
 
-  await page.waitForFunction(
-    () => document.getElementById('record-hint')?.textContent === 'Tap to record, then say the sentence',
-    undefined,
-    { timeout: 25 * 60_000 },
-  );
+  try {
+    await page.waitForFunction(
+      () => {
+        const hint = document.getElementById('record-hint')?.textContent ?? '';
+        return hint === 'Tap to record, then say the sentence' || hint === 'Could not load the local models.';
+      },
+      undefined,
+      { timeout: 25 * 60_000 },
+    );
+  } catch (error) {
+    const status = await page.textContent('#status').catch(() => null);
+    const hint = await page.textContent('#record-hint').catch(() => null);
+    const errorMessage = await page.textContent('#error-message').catch(() => null);
+    console.log('TIMEOUT state — status:', status?.trim(), '· hint:', hint?.trim(), '· error:', errorMessage?.trim());
+    throw error;
+  }
   // once everything is loaded, the popup is gone
   const popupHiddenAfterLoad = await page.evaluate(
     () => document.getElementById('download-popup')?.classList.contains('hidden') ?? false,
   );
   console.log('popup hidden after load:', popupHiddenAfterLoad);
+  const hint = await page.textContent('#record-hint');
+  if (hint !== 'Tap to record, then say the sentence') {
+    const errorMessage = await page.textContent('#error-message');
+    const status = await page.textContent('#status');
+    console.log('BOOTSTRAP FAILED — hint:', hint?.trim(), '· error:', errorMessage?.trim(), '· status:', status?.trim());
+    await browser.close();
+    process.exit(1);
+  }
 
   await page.fill('#expected-text', 'I would like a cup of coffee, please.');
   await page.setInputFiles('#file-input', path.join(FIXTURES_DIR, 'en-coffee.wav'));
