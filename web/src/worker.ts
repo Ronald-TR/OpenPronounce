@@ -134,7 +134,7 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
       // the encoder lives in this worker too: a single ORT runtime keeps
       // memory and thread pressure under control
       env.allowLocalModels = true;
-      env.localModelPath = '/';
+      env.localModelPath = import.meta.env.BASE_URL;
       if (!embedder) {
         // graceful degradation: webgpu fp16 -> webgpu int8 -> wasm int8
         const attempts: Array<[EmbedderDevice, Dtype]> = activeDevice === 'webgpu'

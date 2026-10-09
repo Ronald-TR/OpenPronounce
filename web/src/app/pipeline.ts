@@ -14,7 +14,7 @@ import { alignPhonemeTrace } from '../core/trace';
 
 export interface AnalysisResult {
   score: number;
-  acoustic: { meanPerStep: number; ms: number };
+  acoustic: { meanPerStep: number; ms: number } | null;
   phones: ComparePhonesResult;
   transcript: string;
   wordErrorRate: number;
@@ -24,6 +24,8 @@ export interface AnalysisResult {
   phoneConfidences: number[];
   /** Aligned codepoint traces of the expected vs transcribed phones (details chart). */
   trace: { expected: number[]; heard: number[] };
+  /** null when the acoustic encoder is unavailable (static deploys without it). */
+  acousticAvailable: boolean;
   /** Prosody of the learner audio (details charts). */
   prosody: { f0: number[]; energy: number[] };
   timings: {
@@ -64,6 +66,7 @@ interface AcousticResponse {
   meanPerStep: number;
   pathLength: number;
   ms: number;
+  unavailable?: boolean;
 }
 
 export type InferenceDevice = 'wasm' | 'webgpu';
@@ -161,14 +164,22 @@ export class Pipeline {
     });
     const referenceMs = performance.now() - referenceStart;
 
-    // 4. acoustic term (encoder + DTW in the worker)
+    // 4. acoustic term (encoder + DTW in the worker); optional — static deploys
+    // without the self-hosted encoder score with phones + words only
     this.status('computing acoustic distance (encoder + DTW)...');
     const acousticStart = performance.now();
-    const acousticResponse = await this.worker.request<AcousticResponse>(
-      { type: 'acoustic', learner: acousticAudio, reference: reference.audio },
-      [acousticAudio.buffer, reference.audio.buffer],
-    );
+    let acousticResponse: AcousticResponse;
+    try {
+      acousticResponse = await this.worker.request<AcousticResponse>(
+        { type: 'acoustic', learner: acousticAudio, reference: reference.audio },
+        [acousticAudio.buffer, reference.audio.buffer],
+      );
+    } catch (error) {
+      console.warn('acoustic encoder unavailable, scoring without the acoustic term:', error);
+      acousticResponse = { type: 'acoustic-result', distance: 0, meanPerStep: 0, pathLength: 0, ms: 0, unavailable: true };
+    }
     const acousticMs = performance.now() - acousticStart;
+    const acousticAvailable = !acousticResponse.unavailable;
 
     // 5. phone term
     this.status('comparing phones...');
@@ -203,12 +214,20 @@ export class Pipeline {
     const expectedWords = tokenize(expectedText.toLowerCase());
     const heardWords = tokenize(transcript);
     const wer = wordErrorRate(expectedWords, heardWords);
-    const score = computePronunciationScore(acousticResponse.meanPerStep, phones.phone_error_rate, wer, 'en');
+    const score = computePronunciationScore(
+      acousticAvailable ? acousticResponse.meanPerStep : null,
+      phones.phone_error_rate,
+      wer,
+      'en',
+    );
     this.status('done');
 
     return {
       score,
-      acoustic: { meanPerStep: acousticResponse.meanPerStep, ms: acousticResponse.ms },
+      acousticAvailable,
+      acoustic: acousticAvailable
+        ? { meanPerStep: acousticResponse.meanPerStep, ms: acousticResponse.ms }
+        : null,
       phones,
       transcript,
       wordErrorRate: wer,

@@ -247,7 +247,7 @@ function setupRecorderEvents(): void {
   });
 
   document.addEventListener('record:silence', () => {
-    new Audio('/assets/sounds/notification.mp3').play().catch(() => { });
+    new Audio(`${import.meta.env.BASE_URL}assets/sounds/notification.mp3`).play().catch(() => { });
   });
 
   document.addEventListener('record:ready', (event) => {
@@ -880,8 +880,11 @@ function renderHeard(result: AnalysisResult): void {
   });
 
   const t = result.timings;
+  const acousticPart = result.acoustic
+    ? `acoustic ${result.acoustic.meanPerStep.toFixed(2)}`
+    : 'acoustic n/a (no encoder on this deploy)';
   $('breakdown').textContent =
-    `acoustic ${result.acoustic.meanPerStep.toFixed(2)} · phones ${Math.round((1 - result.phones.phone_error_rate) * 100)} % · words ${Math.round((1 - result.wordErrorRate) * 100)} %`
+    `${acousticPart} · phones ${Math.round((1 - result.phones.phone_error_rate) * 100)} % · words ${Math.round((1 - result.wordErrorRate) * 100)} %`
     + ` — ${('total ' + (t.totalMs / 1000).toFixed(1) + 's')}`;
 }
 

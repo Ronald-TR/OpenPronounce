@@ -54,22 +54,34 @@ export function wordErrorRate(expectedWords: string[], heardWords: string[]): nu
 /**
  * Combine length-independent measures into a 0-100 score
  * (speech.compute_pronunciation_score): acoustic 30 %, phonemes 40 %, words 30 %.
+ *
+ * With `acousticDistance === null` (encoder unavailable, e.g. on a static
+ * deploy without self-hosted models) the acoustic term is dropped and the
+ * remaining weights renormalized: phonemes 4/7, words 3/7.
  */
 export function computePronunciationScore(
-  acousticDistance: number,
+  acousticDistance: number | null,
   phonemeErrorRate: number,
   wordErrorRateValue: number,
   lang = 'en',
 ): number {
-  const good = ACOUSTIC_GOOD[lang] ?? ACOUSTIC_DISTANCE_GOOD_EN;
-  const acousticScore = 100 * (1 - (acousticDistance - good) / ACOUSTIC_DISTANCE_SPAN);
-  const phonemeScore = 100 * (1 - phonemeErrorRate);
-  const wordScore = 100 * (1 - wordErrorRateValue);
-
   const clip = (x: number) => Math.min(100.0, Math.max(0.0, x));
+  const phonemeScore = clip(100 * (1 - phonemeErrorRate));
+  const wordScore = clip(100 * (1 - wordErrorRateValue));
+
+  if (acousticDistance === null) {
+    const renormalized = (1 - SCORE_WEIGHTS.acoustic);
+    const finalScore =
+      (SCORE_WEIGHTS.phonemes / renormalized) * phonemeScore
+      + (SCORE_WEIGHTS.words / renormalized) * wordScore;
+    return Math.round(clip(finalScore) * 100) / 100;
+  }
+
+  const good = ACOUSTIC_GOOD[lang] ?? ACOUSTIC_DISTANCE_GOOD_EN;
+  const acousticScore = clip(100 * (1 - (acousticDistance - good) / ACOUSTIC_DISTANCE_SPAN));
   const finalScore =
-    SCORE_WEIGHTS.acoustic * clip(acousticScore)
-    + SCORE_WEIGHTS.phonemes * clip(phonemeScore)
-    + SCORE_WEIGHTS.words * clip(wordScore);
+    SCORE_WEIGHTS.acoustic * acousticScore
+    + SCORE_WEIGHTS.phonemes * phonemeScore
+    + SCORE_WEIGHTS.words * wordScore;
   return Math.round(clip(finalScore) * 100) / 100;
 }

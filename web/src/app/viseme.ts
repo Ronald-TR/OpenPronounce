@@ -41,7 +41,7 @@ export class Viseme {
     'juː': ['j', 'u'], 'ju': ['j', 'u'], 'ɑːɹ': ['ɑ', 'ɹ'], 'ɑɹ': ['ɑ', 'ɹ'],
   };
 
-  constructor(mouthImage: HTMLImageElement, imagesFolder = '/assets/mouths/HunanBeanCMU39') {
+  constructor(mouthImage: HTMLImageElement, imagesFolder = `${import.meta.env.BASE_URL}assets/mouths/HunanBeanCMU39`) {
     this.mouthImage = mouthImage;
     this.imagesFolder = imagesFolder.replace(/\/$/, '');
     this.rest();

@@ -7,8 +7,11 @@
     <title>OpenPronounce: say a sentence, see which sounds went wrong</title>
     <meta name="description"
         content="Open-source, phoneme-level pronunciation feedback that runs entirely in your browser. Record a sentence and see which sounds went wrong.">
-    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
-    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+    <link rel="manifest" href="manifest.webmanifest">
+    <!-- Enables cross-origin isolation (WASM threads) on hosts that cannot set
+         COOP/COEP headers, like GitHub Pages. Reloads the page once. -->
+    <script src="coi-serviceworker.js"></script>
     <meta name="theme-color" content="#ea580c">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -67,7 +70,7 @@
     <!-- Header -->
     <header class="max-w-2xl mx-auto px-5 pt-6 pb-2 flex items-center justify-between">
         <a href="/" class="flex items-center gap-2 font-semibold tracking-tight text-neutral-900">
-            <img src="/assets/logo.svg" alt="" class="w-6 h-6">
+            <img src="assets/logo.svg" alt="" class="w-6 h-6">
             OpenPronounce
         </a>
         <div class="flex items-center gap-4">

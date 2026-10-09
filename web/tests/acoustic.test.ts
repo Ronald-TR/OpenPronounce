@@ -141,6 +141,9 @@ describe('acoustic embeddings + score (gated)', () => {
       wer,
       'en',
     );
+    // without the encoder the score renormalizes over phones + words
+    const scoreNoAcoustic = computePronunciationScore(null, phoneResult.phone_error_rate, wer, 'en');
+    expect(scoreNoAcoustic).toBeGreaterThan(60);
     console.log(`end-to-end score: ${score} (acoustic ${acoustic.meanPerStep.toFixed(3)}, `
       + `phones ${phoneResult.phone_error_rate}, words ${wer})`);
     expect(score).toBeGreaterThan(70); // clean TTS reading against itself

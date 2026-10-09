@@ -225,3 +225,29 @@ Fixtures are regenerated with the Python venv:
 ```bash
 .venv/bin/python web/scripts/generate_fixtures.py
 ```
+
+---
+
+# Deploy (test) — GitHub Pages
+
+`.github/workflows/deploy-pages.yml` builds `web/` on every push to `main`
+(typecheck + unit tests + `VITE_BASE=/<repo>/ npm run build`) and publishes
+`web/dist` through GitHub Pages (actions/deploy-pages).
+
+**Repo setup (once):** Settings → Pages → Source: **GitHub Actions**.
+
+Pages specifics handled here:
+
+- **Subpath**: `vite.config.ts` reads `VITE_BASE` (defaults to `/`); all asset,
+  manifest, viseme and encoder paths are base-relative.
+- **COOP/COEP**: GitHub Pages cannot set headers, so `coi-serviceworker`
+  (vendored, MIT, in `web/public/`) adds them client-side and reloads the page
+  once — WASM threads keep working. The PWA service worker registration is
+  disabled (`injectRegister: false`) so it never competes for the scope.
+- **No self-hosted models in this test deploy**: the acoustic encoder lives in
+  `web/public/models/` (gitignored) and will 404 on Pages. The app degrades
+  gracefully — the score drops the acoustic term and renormalizes over phones
+  (4/7) + words (3/7); the breakdown line shows `acoustic n/a`. The other
+  models (phone recognizer, ASR, piper voice) download from the HF CDN. For a
+  production deploy, publish the encoder ONNX to a CDN/HF repo and point
+  `ENCODER_PATH`/`env.localModelPath` at it.
