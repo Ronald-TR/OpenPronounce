@@ -8,6 +8,7 @@ import '../style.css';
 import { AudioRecorder } from './recorder';
 import { Pipeline, type AnalysisResult } from './pipeline';
 import { decodeTo16kMono } from '../core/audio';
+import { enhanceAudio } from '../core/enhance';
 import { synthesizeReference } from '../core/tts';
 import { MODELS, storageEstimate, clearStoredModels, storedPiperVoicesList } from './models';
 
@@ -22,6 +23,7 @@ const EXAMPLES = [
 
 const MIC_STORAGE_KEY = 'openpronounce.micId';
 const AUTO_STOP_STORAGE_KEY = 'openpronounce.autoStop';
+const ENHANCE_STORAGE_KEY = 'openpronounce.enhance';
 const RING_LENGTH = 2 * Math.PI * 62;
 const COLORS = { good: '#10b981', mid: '#f59e0b', bad: '#ef4444' };
 
@@ -35,6 +37,7 @@ const RECORD_ERRORS: Record<string, string> = {
 const state = {
   micId: localStorage.getItem(MIC_STORAGE_KEY) || null,
   autoStop: localStorage.getItem(AUTO_STOP_STORAGE_KEY) !== '0',
+  enhance: localStorage.getItem(ENHANCE_STORAGE_KEY) !== '0',
   blob: null as Blob | null,
   filename: null as string | null,
   needsConfirmation: false,
@@ -88,6 +91,11 @@ function init(): void {
   });
   ($('auto-stop-toggle') as HTMLInputElement).checked = state.autoStop;
   recorder.setSilenceDetection(state.autoStop);
+  ($('enhance-toggle') as HTMLInputElement).checked = state.enhance;
+  $('enhance-toggle').addEventListener('change', (e) => {
+    state.enhance = (e.target as HTMLInputElement).checked;
+    localStorage.setItem(ENHANCE_STORAGE_KEY, state.enhance ? '1' : '0');
+  });
 
   $('record-btn').addEventListener('click', onRecordClick);
   $('listen-btn').addEventListener('click', () => void playReference());
@@ -483,7 +491,11 @@ async function analyze(): Promise<void> {
   setStatus('decoding audio...');
 
   try {
-    const audio = await decodeTo16kMono(state.blob);
+    let audio = await decodeTo16kMono(state.blob);
+    if (state.enhance) {
+      setStatus('reducing noise & enhancing voice...');
+      audio = await enhanceAudio(audio);
+    }
     const currentPipeline = await pipelineReady!;
     const result = await currentPipeline.analyze(audio, expectedText);
     state.result = result;
