@@ -5,7 +5,8 @@ pipeline uses for acoustic embeddings) to ONNX for browser inference.
 Outputs (to web/public/models/wav2vec2-960h-encoder/):
   config.json               copied from the HF snapshot
   onnx/model.onnx           fp32 export (~1.4 GB, not for git)
-  onnx/model_quantized.onnx int8 dynamic quantization (~360 MB, browser default)
+  onnx/model_quantized.onnx int8 dynamic quantization (~360 MB, wasm default)
+  onnx/model_fp16.onnx      fp16 conversion (~630 MB, webgpu)
 
 Run with the project venv:
     .venv/bin/python web/scripts/export_embedding_model.py
@@ -26,8 +27,9 @@ MODEL_ID = "facebook/wav2vec2-large-960h"
 def main() -> None:
     out_onnx = OUT_DIR / "onnx" / "model.onnx"
     out_quantized = OUT_DIR / "onnx" / "model_quantized.onnx"
-    if out_quantized.exists():
-        print(f"already exported: {out_quantized}")
+    out_fp16 = OUT_DIR / "onnx" / "model_fp16.onnx"
+    if out_quantized.exists() and out_fp16.exists():
+        print(f"already exported: {out_quantized} and {out_fp16}")
         return
 
     print(f"loading {MODEL_ID} encoder...")
@@ -73,6 +75,19 @@ def main() -> None:
     )
     size_mb = out_quantized.stat().st_size / 1e6
     print(f"done: {out_quantized} ({size_mb:.0f} MB)")
+
+    if not out_fp16.exists():
+        import onnx
+
+        # onnx >= 1.17 moved the converter; onnxruntime ships an equivalent
+        from onnxruntime.transformers import float16
+
+        print("converting to fp16 (for the webgpu device)...")
+        model = onnx.load(str(out_onnx))
+        model_fp16 = float16.convert_float_to_float16(model, keep_io_types=True)
+        onnx.save(model_fp16, str(out_fp16))
+    size_mb = out_fp16.stat().st_size / 1e6
+    print(f"done: {out_fp16} ({size_mb:.0f} MB)")
 
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@
  */
 import { AutoProcessor, AutoTokenizer, Wav2Vec2ForCTC, env } from '@huggingface/transformers';
 import { createSession, type Device, type Dtype, type ModelProgress, type Session, type SessionInfo } from './core/session';
-import { createEmbedder, acousticDistance, type Embedder } from './core/embeddings';
+import { createEmbedder, acousticDistance, type Embedder, type EmbedderDevice } from './core/embeddings';
 
 const ASR_MODEL_ID = 'onnx-community/wav2vec2-base-960h-ONNX';
 const ENCODER_PATH = 'models/wav2vec2-960h-encoder';
@@ -22,10 +22,13 @@ let asr: {
   idToToken: string[];
 } | null = null;
 let embedder: Embedder | null = null;
+// the acoustic encoder follows the device/dtype chosen for the phone model
+let activeDevice: Device = 'wasm';
+let activeDtype: Dtype = 'q8';
 
 type LoadMessage = { type: 'load'; device: Device; dtype: Dtype; requestId?: number };
 type InferMessage = { type: 'infer'; audio: Float32Array; requestId: number };
-type LoadAsrMessage = { type: 'load-asr'; requestId?: number };
+type LoadAsrMessage = { type: 'load-asr'; device?: Device; dtype?: Dtype; requestId?: number };
 type TranscribeMessage = { type: 'transcribe'; audio: Float32Array; requestId: number };
 type AcousticMessage = { type: 'acoustic'; learner: Float32Array; reference: Float32Array; requestId: number };
 type WorkerMessage = LoadMessage | InferMessage | LoadAsrMessage | TranscribeMessage | AcousticMessage;
@@ -38,6 +41,8 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
   const message = event.data;
   try {
     if (message.type === 'load') {
+      activeDevice = message.device;
+      activeDtype = message.dtype;
       session = await createSession({
         device: message.device,
         dtype: message.dtype,
@@ -79,7 +84,10 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
       // TokenizerModel.vocab is the id -> token table
       const tokenizerModel = (tokenizer as unknown as { model: { vocab: string[] } }).model;
       const idToToken = tokenizerModel.vocab;
-      const model = await Wav2Vec2ForCTC.from_pretrained(ASR_MODEL_ID, { dtype: 'q8' });
+      const model = await Wav2Vec2ForCTC.from_pretrained(ASR_MODEL_ID, {
+        device: message.device ?? activeDevice,
+        dtype: message.dtype ?? activeDtype,
+      });
       asr = { processor, model, idToToken };
       post({ type: 'asr-ready', requestId: message.requestId });
       return;
@@ -123,7 +131,22 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
       env.allowLocalModels = true;
       env.localModelPath = '/';
       if (!embedder) {
-        embedder = await createEmbedder(ENCODER_PATH, 'q8');
+        // graceful degradation: webgpu fp16 -> webgpu int8 -> wasm int8
+        const attempts: Array<[EmbedderDevice, Dtype]> = activeDevice === 'webgpu'
+          ? [['webgpu', 'fp16'], ['webgpu', 'q8'], ['wasm', 'q8']]
+          : [['wasm', 'q8']];
+        let lastError: unknown = null;
+        for (const [device, dtype] of attempts) {
+          try {
+            embedder = await createEmbedder(ENCODER_PATH, dtype, device);
+            break;
+          } catch (error) {
+            lastError = error;
+          }
+        }
+        if (!embedder) {
+          throw lastError ?? new Error('encoder could not be loaded');
+        }
       }
       const learnerEmbedding = await embedder.embed(message.learner);
       const referenceEmbedding = await embedder.embed(message.reference);

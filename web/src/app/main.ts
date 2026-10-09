@@ -6,7 +6,7 @@
  */
 import '../style.css';
 import { AudioRecorder } from './recorder';
-import { Pipeline, type AnalysisResult } from './pipeline';
+import { Pipeline, type AnalysisResult, type InferenceDevice } from './pipeline';
 import { decodeTo16kMono } from '../core/audio';
 import { enhanceAudio } from '../core/enhance';
 import { synthesizeReference } from '../core/tts';
@@ -31,6 +31,8 @@ const SPEECH_LANGS: Record<string, string> = {
 const MIC_STORAGE_KEY = 'openpronounce.micId';
 const AUTO_STOP_STORAGE_KEY = 'openpronounce.autoStop';
 const ENHANCE_STORAGE_KEY = 'openpronounce.enhance';
+const DEVICE_STORAGE_KEY = 'openpronounce.device';
+const SPEAK_SPEED_STORAGE_KEY = 'openpronounce.speakSpeed';
 const RING_LENGTH = 2 * Math.PI * 62;
 const COLORS = { good: '#10b981', mid: '#f59e0b', bad: '#ef4444' };
 
@@ -45,6 +47,8 @@ const state = {
   micId: localStorage.getItem(MIC_STORAGE_KEY) || null,
   autoStop: localStorage.getItem(AUTO_STOP_STORAGE_KEY) !== '0',
   enhance: localStorage.getItem(ENHANCE_STORAGE_KEY) !== '0',
+  device: ((localStorage.getItem(DEVICE_STORAGE_KEY) === 'webgpu' ? 'webgpu' : 'wasm') as InferenceDevice),
+  speakSpeed: Number(localStorage.getItem(SPEAK_SPEED_STORAGE_KEY)) || 1,
   blob: null as Blob | null,
   filename: null as string | null,
   needsConfirmation: false,
@@ -102,6 +106,7 @@ function init(): void {
   });
   ($('auto-stop-toggle') as HTMLInputElement).checked = state.autoStop;
   recorder.setSilenceDetection(state.autoStop);
+  setupSettingsBar();
   $('details').addEventListener('toggle', () => {
     if (($('details') as HTMLDetailsElement).open && state.chartsDirty) {
       renderCharts();
@@ -139,14 +144,15 @@ function init(): void {
 
 async function bootstrap(): Promise<void> {
   setStatus('loading local AI models (~830 MB on the first visit)...');
+  const callbacks = {
+    onStatus: (status: string) => {
+      if (state.view === 'loading' || !state.ready) {
+        setStatus(status);
+      }
+    },
+  };
   try {
-    pipelineReady = Pipeline.create({
-      onStatus: (status) => {
-        if (state.view === 'loading' || !state.ready) {
-          setStatus(status);
-        }
-      },
-    });
+    pipelineReady = Pipeline.create(callbacks, { device: state.device });
     await pipelineReady;
     state.ready = true;
     setBusy(false);
@@ -154,6 +160,27 @@ async function bootstrap(): Promise<void> {
     $('record-hint').textContent = 'Tap to record, then say the sentence';
     void refreshStorageInfo();
   } catch (error) {
+    if (state.device === 'webgpu') {
+      // WebGPU failed (unavailable, out of memory, driver): fall back to wasm once
+      console.warn('webgpu load failed, falling back to wasm', error);
+      state.device = 'wasm';
+      localStorage.setItem(DEVICE_STORAGE_KEY, 'wasm');
+      syncSettingsUi();
+      setStatus('WebGPU unavailable — falling back to wasm...');
+      try {
+        pipelineReady = Pipeline.create(callbacks, { device: 'wasm' as const });
+        await pipelineReady;
+        state.ready = true;
+        setBusy(false);
+        ($('mic-select-btn') as HTMLButtonElement).disabled = false;
+        $('record-hint').textContent = 'Tap to record, then say the sentence';
+        ($('device-note') as HTMLElement).textContent = 'WebGPU failed on this device; using wasm.';
+        void refreshStorageInfo();
+        return;
+      } catch (wasmError) {
+        error = wasmError;
+      }
+    }
     $('record-hint').textContent = 'Could not load the local models.';
     setStatus(`model load failed: ${error instanceof Error ? error.message : String(error)}`);
     setView('error');
@@ -465,6 +492,10 @@ async function playReference(): Promise<void> {
     const url = URL.createObjectURL(reference.blob);
     referenceAudio = new Audio(url);
     referenceAudio.dataset.url = url;
+    // speak speed from the settings bar; preservesPitch keeps the voice natural
+    referenceAudio.playbackRate = state.speakSpeed;
+    referenceAudio.preservesPitch = true;
+    (referenceAudio as HTMLAudioElement & { webkitPreservesPitch?: boolean }).webkitPreservesPitch = true;
     referenceAudio.onended = restore;
     referenceAudio.onerror = restore;
 
@@ -842,6 +873,47 @@ function renderHeard(result: AnalysisResult): void {
   $('breakdown').textContent =
     `acoustic ${result.acoustic.meanPerStep.toFixed(2)} · phones ${Math.round((1 - result.phones.phone_error_rate) * 100)} % · words ${Math.round((1 - result.wordErrorRate) * 100)} %`
     + ` — ${('total ' + (t.totalMs / 1000).toFixed(1) + 's')}`;
+}
+
+// ---------------------------------------------------------------- settings bar
+
+function setupSettingsBar(): void {
+  const toggle = $('settings-toggle') as HTMLButtonElement;
+  const body = $('settings-body');
+
+  const applyCollapsed = (collapsed: boolean) => {
+    body.classList.toggle('hidden', collapsed);
+    toggle.setAttribute('aria-expanded', String(!collapsed));
+  };
+  // collapsed by default on narrow screens
+  applyCollapsed(window.innerWidth < 1280);
+  toggle.addEventListener('click', () => {
+    applyCollapsed(body.classList.contains('hidden'));
+  });
+
+  const deviceSelect = $('device-setting') as HTMLSelectElement;
+  deviceSelect.value = state.device;
+  deviceSelect.addEventListener('change', () => {
+    state.device = deviceSelect.value as InferenceDevice;
+    localStorage.setItem(DEVICE_STORAGE_KEY, state.device);
+    ($('device-note') as HTMLElement).textContent =
+      state.device === 'webgpu'
+        ? 'webgpu loads fp16 weights (~1.3 GB extra).'
+        : 'webgpu loads fp16 weights (~1.3 GB extra).';
+    // the worker models must be recreated; a reload applies the new device
+    window.location.reload();
+  });
+
+  const speedSelect = $('speak-speed-setting') as HTMLSelectElement;
+  speedSelect.value = String(state.speakSpeed);
+  speedSelect.addEventListener('change', () => {
+    state.speakSpeed = Number(speedSelect.value) || 1;
+    localStorage.setItem(SPEAK_SPEED_STORAGE_KEY, String(state.speakSpeed));
+  });
+}
+
+function syncSettingsUi(): void {
+  ($('device-setting') as HTMLSelectElement).value = state.device;
 }
 
 // ---------------------------------------------------------------- examples & models panel

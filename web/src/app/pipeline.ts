@@ -66,17 +66,33 @@ interface AcousticResponse {
   ms: number;
 }
 
+export type InferenceDevice = 'wasm' | 'webgpu';
+
+export interface PipelineOptions {
+  device?: InferenceDevice;
+  /** defaults to fp16 on webgpu and q8 on wasm */
+  dtype?: string;
+}
+
+export function dtypeForDevice(device: InferenceDevice): string {
+  return device === 'webgpu' ? 'fp16' : 'q8';
+}
+
 export class Pipeline {
   private worker: WorkerClient;
   private callbacks: PipelineCallbacks;
+  readonly device: InferenceDevice;
 
-  private constructor(worker: WorkerClient, callbacks: PipelineCallbacks) {
+  private constructor(worker: WorkerClient, callbacks: PipelineCallbacks, device: InferenceDevice) {
     this.worker = worker;
     this.callbacks = callbacks;
+    this.device = device;
   }
 
   /** Create the pipeline and load the worker-side models (phone recognizer + ASR). */
-  static async create(callbacks: PipelineCallbacks = {}): Promise<Pipeline> {
+  static async create(callbacks: PipelineCallbacks = {}, options: PipelineOptions = {}): Promise<Pipeline> {
+    const device = options.device ?? 'wasm';
+    const dtype = options.dtype ?? dtypeForDevice(device);
     const worker = new WorkerClient(
       new Worker(new URL('../worker.ts', import.meta.url), { type: 'module' }),
       (message) => {
@@ -88,9 +104,9 @@ export class Pipeline {
       },
     );
 
-    const pipeline = new Pipeline(worker, callbacks);
-    await pipeline.worker.request({ type: 'load', device: 'wasm', dtype: 'q8' });
-    await pipeline.worker.request({ type: 'load-asr' });
+    const pipeline = new Pipeline(worker, callbacks, device);
+    await pipeline.worker.request({ type: 'load', device, dtype });
+    await pipeline.worker.request({ type: 'load-asr', device, dtype });
     return pipeline;
   }
 

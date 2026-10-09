@@ -35,6 +35,7 @@ export function normalizeUtterance(audio: Float32Array): Float32Array {
   return out;
 }
 
+export type EmbedderDevice = 'wasm' | 'webgpu';
 export type EmbedderDtype = 'q8' | 'q4' | 'q4f16' | 'fp16' | 'fp32' | 'auto' | 'int8' | 'uint8' | 'bnb4';
 
 /**
@@ -42,8 +43,16 @@ export type EmbedderDtype = 'q8' | 'q4' | 'q4f16' | 'fp16' | 'fp32' | 'auto' | '
  * directory under `env.localModelPath` (Node) or an origin-relative path
  * (browser, e.g. "models/wav2vec2-960h-encoder" with env.localModelPath="/").
  */
-export async function createEmbedder(modelId: string, dtype: EmbedderDtype = 'q8'): Promise<Embedder> {
-  const model = await AutoModel.from_pretrained(modelId, { dtype });
+export async function createEmbedder(
+  modelId: string,
+  dtype: EmbedderDtype = 'q8',
+  device: EmbedderDevice = 'wasm',
+): Promise<Embedder> {
+  // transformers.js in Node runs on onnxruntime-node, which calls its device "cpu"
+  const resolvedDevice = typeof process !== 'undefined' && Boolean(process.versions?.node)
+    ? 'cpu'
+    : device;
+  const model = await AutoModel.from_pretrained(modelId, { dtype, device: resolvedDevice });
   return {
     modelId,
     dtype,

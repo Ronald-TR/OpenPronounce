@@ -98,6 +98,14 @@ async function main(): Promise<void> {
   console.log('transcript:', transcript?.trim());
   console.log('breakdown:', breakdown?.trim());
 
+  // Settings bar: pick a speak speed, then "Hear the reference"
+  const settingsVisible = await page.evaluate(
+    () => !document.getElementById('settings-body')?.classList.contains('hidden'),
+  );
+  await page.selectOption('#speak-speed-setting', '0.5');
+  const speedValue = await page.evaluate(() => (document.getElementById('speak-speed-setting') as HTMLSelectElement).value);
+  console.log('settings bar visible:', settingsVisible, '· speak speed set to', speedValue);
+
   // "Hear the reference": piper synth + playback (voice already cached by the score step)
   await page.click('#listen-btn');
   await page.waitForFunction(
@@ -159,8 +167,9 @@ async function main(): Promise<void> {
   const heardText = (heard ?? '').replace(/\s+/g, '');
   const scoreNumber = Number(score);
   const ok = heardText.startsWith('aɪwʊdlaɪk') && phoneSpans.length >= 20 && scoreNumber > 75
-    && listenLabel === 'Playing…' && canvasWidths.phoneme > 0 && Boolean(visemeSrc) && visemeSrc !== 'rest.png';
-  console.log(ok ? 'SMOKE TEST PASSED' : `SMOKE TEST FAILED (score: ${scoreNumber}, spans: ${phoneSpans.length}, listen: ${listenLabel}, chart: ${canvasWidths.phoneme}px, viseme: ${visemeSrc})`);
+    && listenLabel === 'Playing…' && canvasWidths.phoneme > 0 && Boolean(visemeSrc) && visemeSrc !== 'rest.png'
+    && speedValue === '0.5';
+  console.log(ok ? 'SMOKE TEST PASSED' : `SMOKE TEST FAILED (score: ${scoreNumber}, spans: ${phoneSpans.length}, listen: ${listenLabel}, chart: ${canvasWidths.phoneme}px, viseme: ${visemeSrc}, speed: ${speedValue})`);
   if (errors.length) {
     console.log('errors seen:', errors.slice(0, 5));
   }
