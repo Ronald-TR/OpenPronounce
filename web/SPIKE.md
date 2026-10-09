@@ -166,6 +166,49 @@ count-up animation.
 Still pending: visemes + Chart.js charts in the result view (all data is
 available client-side), WebGPU trial, phase-4 calibration, phase-5 deploy.
 
+---
+
+# Phase 4 — Calibration against speechocean762 (done)
+
+The full benchmark sample was re-scored through the browser's models:
+
+- Sample: the same 500 utterances as the Python benchmark (seed 0, stratified,
+  `benchmarks/results/speechocean762-v0.3.csv`).
+- Harness: `web/scripts/export_calibration_set.py` (audio + manifest) →
+  `npm run calibrate` (Node, quantized encoder, same ONNX the browser runs) →
+  `web/scripts/analyze_calibration.py` (correlations + grid search + CV).
+
+## Results
+
+| Pipeline | Spearman vs human total |
+|---|---:|
+| Python (torch fp32), shipped constants | 0.6518 |
+| **Browser (ONNX int8), shipped constants** | **0.6478** |
+| Browser, grid-searched constants (0.7/0.3/0, GOOD 8, BAD 18) | 0.6850 (held-out CV 0.6839) |
+
+- int8 distance drift: +0.93 on average, distance correlation 0.94 with torch.
+- The grid search reproduces the Python finding documented in `speech.py`:
+  heavier acoustic weights correlate slightly better but stop punishing a
+  wrong sentence. **Decision: keep the shipped constants** (0.3/0.4/0.3,
+  GOOD 6 / BAD 15) — the browser pipeline loses only 0.004 Spearman and keeps
+  the deliberate wrong-sentence penalty.
+- No threshold recalibration needed for the phone confidences: the phone/word
+  components are bit-identical to Python (phase-1 parity), so the word-level
+  precision/recall behaviour carries over.
+
+## WebGPU
+
+Headless Chromium and headless Chrome (channel: `chrome`) expose no
+`navigator.gpu` on this machine — the measurement must be manual:
+
+1. `cd web && npm run build && npm run preview`
+2. Open http://localhost:4173/spike.html in Chrome/Edge.
+3. Pick device `webgpu`, quantization `fp16` (or `q4f16`), load, analyze the
+   fixtures, and compare the timings against the wasm/q8 row in the table above.
+4. The encoder (`web/public/models/...`) has no fp16 export yet; run
+   `scripts/export_embedding_model.py` with `torch.float16` if it becomes the
+   bottleneck.
+
 ## How to reproduce
 
 ```bash

@@ -12,6 +12,15 @@ export const WORD_ERROR_THRESHOLD = 0.4;
 // TTS reference. Calibrated on the bundled samples (see benchmarks/): ~6 for a
 // clean native-like reading, ~12-15 for a wrong sentence. On speechocean762 the
 // median is 11.5 (9.3 to 13.6 for the middle half).
+//
+// Phase-4 calibration (500 speechocean762 utterances, see web/SPIKE.md): with
+// the browser's int8 encoder these constants score Spearman 0.648 against the
+// human ratings — the torch fp32 baseline scores 0.652 with the same numbers.
+// The int8 encoder inflates distances by ~+0.9 on average; a grid search finds
+// 0.685 with a heavy acoustic weight (0.7/0.3/0, GOOD 8 / BAD 18), matching the
+// Python finding that heavier acoustic weights correlate slightly better but
+// stop punishing a wrong sentence — so the phone and word terms keep the
+// majority of the weight and the shipped constants stay.
 export const ACOUSTIC_DISTANCE_BAD = 15.0;
 // Per-language "good" distance (languages.py), English calibrated on human readings.
 export const ACOUSTIC_GOOD: Record<string, number> = {
