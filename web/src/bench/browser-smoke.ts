@@ -127,6 +127,29 @@ async function main(): Promise<void> {
   }));
   console.log(`details charts rendered: phoneme ${canvasWidths.phoneme}px · f0 ${canvasWidths.f0}px`);
 
+  // Word detail + viseme animation: click a chip, then "Hear it and watch the mouth"
+  await page.click('#word-chips button:nth-child(2)');
+  await page.waitForFunction(
+    () => document.getElementById('word-detail')?.classList.contains('hidden') === false,
+    undefined,
+    { timeout: 10_000 },
+  );
+  const detailWord = await page.textContent('#detail-word');
+  await page.click('#detail-listen');
+  await page.waitForFunction(
+    () => {
+      const src = (document.getElementById('viseme-image') as HTMLImageElement | null)?.src ?? '';
+      return src.includes('/assets/mouths/') && !src.endsWith('rest.png');
+    },
+    undefined,
+    { timeout: 10_000 },
+  );
+  const visemeSrc = await page.evaluate(
+    () => (document.getElementById('viseme-image') as HTMLImageElement).src.split('/').pop(),
+  );
+  console.log(`word detail: "${detailWord}" · viseme animating: ${visemeSrc}`);
+  await page.waitForTimeout(3000); // let the animation finish
+
   await page.screenshot({ path: path.join(SCREENSHOTS_DIR, 'app-browser.png'), fullPage: true });
   console.log('screenshot: web/tests/screenshots/app-browser.png');
 
@@ -136,8 +159,8 @@ async function main(): Promise<void> {
   const heardText = (heard ?? '').replace(/\s+/g, '');
   const scoreNumber = Number(score);
   const ok = heardText.startsWith('aɪwʊdlaɪk') && phoneSpans.length >= 20 && scoreNumber > 75
-    && listenLabel === 'Playing…' && canvasWidths.phoneme > 0;
-  console.log(ok ? 'SMOKE TEST PASSED' : `SMOKE TEST FAILED (score: ${scoreNumber}, spans: ${phoneSpans.length}, listen: ${listenLabel}, chart: ${canvasWidths.phoneme}px)`);
+    && listenLabel === 'Playing…' && canvasWidths.phoneme > 0 && Boolean(visemeSrc) && visemeSrc !== 'rest.png';
+  console.log(ok ? 'SMOKE TEST PASSED' : `SMOKE TEST FAILED (score: ${scoreNumber}, spans: ${phoneSpans.length}, listen: ${listenLabel}, chart: ${canvasWidths.phoneme}px, viseme: ${visemeSrc})`);
   if (errors.length) {
     console.log('errors seen:', errors.slice(0, 5));
   }

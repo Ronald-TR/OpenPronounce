@@ -11,6 +11,7 @@ import { decodeTo16kMono } from '../core/audio';
 import { enhanceAudio } from '../core/enhance';
 import { synthesizeReference } from '../core/tts';
 import { MODELS, storageEstimate, clearStoredModels, storedPiperVoicesList } from './models';
+import { Viseme } from './viseme';
 import Chart from 'chart.js/auto';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -21,6 +22,11 @@ const EXAMPLES = [
   'The weather is lovely today.',
   'She thought three thieves threw the theory out the theatre.',
 ];
+
+// BCP 47 tags for the browser SpeechSynthesis, keyed by language code
+const SPEECH_LANGS: Record<string, string> = {
+  en: 'en-US', fr: 'fr-FR', es: 'es-ES', de: 'de-DE', it: 'it-IT', pt: 'pt-BR', nl: 'nl-NL',
+};
 
 const MIC_STORAGE_KEY = 'openpronounce.micId';
 const AUTO_STOP_STORAGE_KEY = 'openpronounce.autoStop';
@@ -52,6 +58,7 @@ const state = {
 };
 
 const recorder = new AudioRecorder();
+let viseme: Viseme | null = null;
 let pipelineReady: Promise<Pipeline> | null = null;
 let timerInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -81,6 +88,7 @@ function setView(name: 'idle' | 'loading' | 'result' | 'error'): void {
 }
 
 function init(): void {
+  viseme = new Viseme($('viseme-image') as HTMLImageElement);
   renderExamples();
   setupMicSelector();
   setupRecorderEvents();
@@ -117,6 +125,11 @@ function init(): void {
   setupDragAndDrop();
 
   $('analyze-btn').addEventListener('click', () => void analyze());
+  $('detail-listen').addEventListener('click', () => {
+    if (state.selected !== null && state.result) {
+      speakWord(state.selected, state.result);
+    }
+  });
   $('retry-btn').addEventListener('click', () => setView('idle'));
   $('again-btn').addEventListener('click', resetForNewTake);
   $('replay-btn').addEventListener('click', () => ($('audio-player') as HTMLAudioElement).play().catch(() => { }));
@@ -518,6 +531,7 @@ async function analyze(): Promise<void> {
 }
 
 function resetForNewTake(): void {
+  viseme?.rest();
   setView('idle');
   $('audio-review').classList.add('hidden');
   state.blob = null;
@@ -626,7 +640,9 @@ function renderResult(result: AnalysisResult): void {
   const flagged = result.phones.errors.map((e) => e.position);
   const firstFlagged = flagged.length ? flagged[0] : -1;
   if (firstFlagged >= 0) {
-    selectWord(firstFlagged, result);
+    selectWord(firstFlagged, result, false);
+  } else {
+    viseme?.rest();
   }
 }
 
@@ -711,12 +727,12 @@ function renderChips(result: AnalysisResult): void {
     } else {
       chip.title = phones.length ? `Sounds fine: /${phones.join(' ')}/` : 'Sounds fine';
     }
-    chip.addEventListener('click', () => selectWord(index, result));
+    chip.addEventListener('click', () => selectWord(index, result, true));
     container.appendChild(chip);
   });
 }
 
-function selectWord(index: number, result: AnalysisResult): void {
+function selectWord(index: number, result: AnalysisResult, speak: boolean): void {
   state.selected = index;
   $('word-chips').querySelectorAll('.chip').forEach((chip) => {
     chip.setAttribute('aria-pressed', String(Number((chip as HTMLElement).dataset.index) === index));
@@ -771,6 +787,31 @@ function selectWord(index: number, result: AnalysisResult): void {
   }
 
   detail.classList.remove('hidden');
+  if (speak) {
+    speakWord(index, result);
+  } else {
+    viseme?.rest();
+  }
+}
+
+/** Speak the word with the browser TTS while the mouth animates its phones. */
+function speakWord(index: number, result: AnalysisResult): void {
+  const word = result.expectedWords[index];
+  const error = result.phones.errors.find((e) => e.position === index);
+  const expectedPhones = result.phones.expected_phones[index] ?? [];
+  const phones = expectedPhones.length ? expectedPhones : (error && error.expected ? [error.expected] : []);
+
+  if (phones.length && viseme) {
+    const duration = viseme.estimateWordDuration(phones) * 1.5;
+    void viseme.play(phones, duration);
+  }
+  if ('speechSynthesis' in window) {
+    speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(word);
+    utterance.lang = SPEECH_LANGS.en;
+    utterance.rate = 0.8;
+    speechSynthesis.speak(utterance);
+  }
 }
 
 function renderHeard(result: AnalysisResult): void {
