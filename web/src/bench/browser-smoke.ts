@@ -111,6 +111,22 @@ async function main(): Promise<void> {
   const listenLabel = await page.textContent('[data-role="listen.label"]');
   console.log('listen button:', listenLabel?.trim());
 
+  // Details section: charts must render when opened
+  await page.click('#details summary');
+  await page.waitForFunction(
+    () => {
+      const canvas = document.getElementById('phoneme-chart') as HTMLCanvasElement | null;
+      return canvas !== null && canvas.width > 0;
+    },
+    undefined,
+    { timeout: 30_000 },
+  );
+  const canvasWidths = await page.evaluate(() => ({
+    phoneme: (document.getElementById('phoneme-chart') as HTMLCanvasElement | null)?.width ?? 0,
+    f0: (document.getElementById('f0-chart') as HTMLCanvasElement | null)?.width ?? 0,
+  }));
+  console.log(`details charts rendered: phoneme ${canvasWidths.phoneme}px · f0 ${canvasWidths.f0}px`);
+
   await page.screenshot({ path: path.join(SCREENSHOTS_DIR, 'app-browser.png'), fullPage: true });
   console.log('screenshot: web/tests/screenshots/app-browser.png');
 
@@ -120,8 +136,8 @@ async function main(): Promise<void> {
   const heardText = (heard ?? '').replace(/\s+/g, '');
   const scoreNumber = Number(score);
   const ok = heardText.startsWith('aɪwʊdlaɪk') && phoneSpans.length >= 20 && scoreNumber > 75
-    && listenLabel === 'Playing…';
-  console.log(ok ? 'SMOKE TEST PASSED' : `SMOKE TEST FAILED (score: ${scoreNumber}, spans: ${phoneSpans.length}, listen: ${listenLabel})`);
+    && listenLabel === 'Playing…' && canvasWidths.phoneme > 0;
+  console.log(ok ? 'SMOKE TEST PASSED' : `SMOKE TEST FAILED (score: ${scoreNumber}, spans: ${phoneSpans.length}, listen: ${listenLabel}, chart: ${canvasWidths.phoneme}px)`);
   if (errors.length) {
     console.log('errors seen:', errors.slice(0, 5));
   }

@@ -3,9 +3,13 @@
  * (worker) + G2P + piper reference + acoustic embeddings + score.
  */
 import { WorkerClient, type WorkerProgress } from './worker-client';
-import { comparePhones, type ComparePhonesResult } from '../core/compare';import { loadRecognizerVocab } from '../core/session';
+import { comparePhones, type ComparePhonesResult } from '../core/compare';
+import { getExpectedPhones } from '../core/g2p';
+import { loadRecognizerVocab } from '../core/session';
 import { synthesizeReference } from '../core/tts';
 import { cleanTranscription, computePronunciationScore, wordErrorRate, words as tokenize } from '../core/score';
+import { extractF0, extractEnergy, interpolateF0 } from '../core/prosody';
+import { alignPhonemeTrace } from '../core/trace';
 
 
 export interface AnalysisResult {
@@ -18,6 +22,10 @@ export interface AnalysisResult {
   heardWords: string[];
   heardPhones: string[];
   phoneConfidences: number[];
+  /** Aligned codepoint traces of the expected vs transcribed phones (details chart). */
+  trace: { expected: number[]; heard: number[] };
+  /** Prosody of the learner audio (details charts). */
+  prosody: { f0: number[]; energy: number[] };
   timings: {
     phonesMs: number;
     asrMs: number;
@@ -96,6 +104,7 @@ export class Pipeline {
     // private copies: each worker request transfers the buffer it receives
     const asrAudio = learnerAudio.slice();
     const acousticAudio = learnerAudio.slice();
+    const prosodyAudio = learnerAudio.slice();
 
     // 1. phones
     this.status('recognizing phones...');
@@ -152,6 +161,16 @@ export class Pipeline {
     );
     const compareMs = performance.now() - compareStart;
 
+    // 5b. details data: prosody contours + aligned phoneme trace
+    const f0 = Array.from(interpolateF0(extractF0(prosodyAudio, 16000)));
+    const energy = Array.from(extractEnergy(prosodyAudio));
+    const expectedG2P = await getExpectedPhones(expectedText, 'en');
+    const heardG2P = transcript ? await getExpectedPhones(transcript, 'en') : { words: [], groups: [] };
+    const trace = alignPhonemeTrace(
+      expectedG2P.groups.flat(),
+      heardG2P.groups.flat(),
+    );
+
     // 6. word term + score
     const expectedWords = tokenize(expectedText.toLowerCase());
     const heardWords = tokenize(transcript);
@@ -169,6 +188,8 @@ export class Pipeline {
       heardWords,
       heardPhones: phonesResponse.phones,
       phoneConfidences: phonesResponse.confidences,
+      trace,
+      prosody: { f0, energy },
       timings: {
         phonesMs,
         asrMs,

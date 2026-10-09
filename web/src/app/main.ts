@@ -11,6 +11,7 @@ import { decodeTo16kMono } from '../core/audio';
 import { enhanceAudio } from '../core/enhance';
 import { synthesizeReference } from '../core/tts';
 import { MODELS, storageEstimate, clearStoredModels, storedPiperVoicesList } from './models';
+import Chart from 'chart.js/auto';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -46,6 +47,8 @@ const state = {
   busy: false,
   ready: false,
   view: 'idle' as 'idle' | 'loading' | 'result' | 'error',
+  charts: {} as Record<string, Chart>,
+  chartsDirty: false,
 };
 
 const recorder = new AudioRecorder();
@@ -91,6 +94,11 @@ function init(): void {
   });
   ($('auto-stop-toggle') as HTMLInputElement).checked = state.autoStop;
   recorder.setSilenceDetection(state.autoStop);
+  $('details').addEventListener('toggle', () => {
+    if (($('details') as HTMLDetailsElement).open && state.chartsDirty) {
+      renderCharts();
+    }
+  });
   ($('enhance-toggle') as HTMLInputElement).checked = state.enhance;
   $('enhance-toggle').addEventListener('change', (e) => {
     state.enhance = (e.target as HTMLInputElement).checked;
@@ -518,6 +526,80 @@ function resetForNewTake(): void {
   $('practice').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
+// ---------------------------------------------------------------- details charts
+
+const CHART_COLORS = { you: '#ea580c', reference: '#2f6fb3' };
+
+function renderCharts(): void {
+  const result = state.result;
+  if (!result) {
+    return;
+  }
+  state.chartsDirty = false;
+
+  const steps = result.trace.expected.length;
+  lineChart('phoneme-chart', Array.from({ length: steps }, (_, i) => i + 1), [
+    { label: 'Reference', data: result.trace.expected, borderColor: CHART_COLORS.reference },
+    { label: 'You', data: result.trace.heard, borderColor: CHART_COLORS.you },
+  ], { legend: true, yTicks: false });
+
+  const f0Steps = result.prosody.f0.length;
+  lineChart('f0-chart', Array.from({ length: f0Steps }, (_, i) => i), [
+    { label: 'Pitch (Hz)', data: result.prosody.f0, borderColor: CHART_COLORS.you },
+  ], { legend: false, yTicks: true });
+
+  const energySteps = result.prosody.energy.length;
+  lineChart('energy-chart', Array.from({ length: energySteps }, (_, i) => i), [
+    { label: 'Energy', data: result.prosody.energy, borderColor: CHART_COLORS.you },
+  ], { legend: false, yTicks: true });
+}
+
+function lineChart(
+  canvasId: string,
+  labels: number[],
+  datasets: Array<{ label: string; data: number[]; borderColor: string }>,
+  { legend, yTicks }: { legend: boolean; yTicks: boolean },
+): void {
+  state.charts[canvasId]?.destroy();
+  const canvas = $(canvasId) as HTMLCanvasElement;
+  state.charts[canvasId] = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: datasets.map((d) => ({
+        ...d,
+        borderWidth: 2,
+        pointRadius: 0,
+        pointHitRadius: 8,
+        tension: 0.3,
+        fill: false,
+      })),
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 300 },
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: { display: false },
+        y: {
+          display: true,
+          grid: { color: '#f0efed' },
+          border: { display: false },
+          ticks: { display: yTicks, color: '#8a8782', font: { size: 11 }, maxTicksLimit: 4 },
+        },
+      },
+      plugins: {
+        legend: {
+          display: legend,
+          position: 'bottom',
+          labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true, color: '#57534e', font: { size: 11 } },
+        },
+      },
+    },
+  });
+}
+
 // ---------------------------------------------------------------- result
 
 function tokenizeWords(text: string): string[] {
@@ -530,6 +612,10 @@ function renderResult(result: AnalysisResult): void {
   renderChips(result);
   renderHeard(result);
   $('word-detail').classList.add('hidden');
+  state.chartsDirty = true;
+  if (($('details') as HTMLDetailsElement).open) {
+    renderCharts();
+  }
   setView('result');
   const section = $('result');
   section.classList.remove('reveal');

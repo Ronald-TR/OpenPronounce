@@ -17,6 +17,7 @@
   "dependencies": {
     "@diffusionstudio/vits-web": "^1.0.3",
     "@huggingface/transformers": "^3.7.6",
+    "chart.js": "^4.5.1",
     "phonemizer": "^1.2.1"
   },
   "devDependencies": {

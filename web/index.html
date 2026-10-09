@@ -295,6 +295,34 @@
                 </div>
             </div>
 
+            <!-- Details -->
+            <details id="details" class="mt-6 border-t border-neutral-100 pt-4">
+                <summary class="cursor-pointer select-none inline-flex items-center gap-2 text-sm font-medium text-neutral-600 hover:text-neutral-900">
+                    <svg class="chev w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                    </svg>
+                    Details: phoneme trace, pitch and energy
+                </summary>
+                <div class="mt-5 grid gap-6">
+                    <div>
+                        <p class="text-xs font-medium text-neutral-500 mb-2">Phoneme trace, reference vs you (aligned)</p>
+                        <div class="relative h-44"><canvas id="phoneme-chart"></canvas></div>
+                    </div>
+                    <div>
+                        <p class="text-xs font-medium text-neutral-500 mb-2">Pitch (F0, Hz)</p>
+                        <div class="relative h-32"><canvas id="f0-chart"></canvas></div>
+                    </div>
+                    <div>
+                        <p class="text-xs font-medium text-neutral-500 mb-2">Energy</p>
+                        <div class="relative h-32"><canvas id="energy-chart"></canvas></div>
+                    </div>
+                    <p class="text-xs text-neutral-500">
+                        Phones are IPA. A sound is flagged when the recognizer is confident it heard something else;
+                        the percentage is that confidence, not a grade.
+                    </p>
+                </div>
+            </details>
+
             <div class="mt-6 flex flex-wrap gap-3">
                 <button id="again-btn" type="button"
                     class="px-5 py-2.5 rounded-xl bg-accent-500 text-white font-medium hover:bg-accent-600 transition">
