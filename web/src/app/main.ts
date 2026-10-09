@@ -8,6 +8,7 @@ import '../style.css';
 import { AudioRecorder } from './recorder';
 import { Pipeline, type AnalysisResult } from './pipeline';
 import { decodeTo16kMono } from '../core/audio';
+import { synthesizeReference } from '../core/tts';
 import { MODELS, storageEstimate, clearStoredModels, storedPiperVoicesList } from './models';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -89,6 +90,7 @@ function init(): void {
   recorder.setSilenceDetection(state.autoStop);
 
   $('record-btn').addEventListener('click', onRecordClick);
+  $('listen-btn').addEventListener('click', () => void playReference());
   $('upload-btn').addEventListener('click', () => ($('file-input') as HTMLInputElement).click());
   $('file-input').addEventListener('change', (e) => {
     const file = (e.target as HTMLInputElement).files?.[0];
@@ -388,6 +390,61 @@ function setupDragAndDrop(): void {
       setAudio(file, file.name, true);
     }
   });
+}
+
+// ---------------------------------------------------------------- reference playback
+
+let referenceAudio: HTMLAudioElement | null = null;
+
+/**
+ * Synthesize the expected sentence with piper (in-browser, voice cached in
+ * OPFS after the first download) and play it.
+ */
+async function playReference(): Promise<void> {
+  if (recorder.isRecording()) {
+    return;
+  }
+  const expectedText = ($('expected-text') as HTMLInputElement).value.trim();
+  if (!tokenizeWords(expectedText).length) {
+    showTextHint('Type the sentence first, or pick one of the examples.');
+    $('expected-text').focus();
+    return;
+  }
+
+  const btn = $('listen-btn') as HTMLButtonElement;
+  const label = btn.querySelector('[data-role="listen.label"]') as HTMLElement;
+  const original = label.textContent;
+  btn.disabled = true;
+
+  const restore = () => {
+    btn.disabled = false;
+    label.textContent = original;
+  };
+
+  try {
+    label.textContent = 'Synthesizing…';
+    const reference = await synthesizeReference(expectedText, (p) => {
+      label.textContent = `Downloading voice ${(p.loaded / 1e6).toFixed(0)} / ${(p.total / 1e6).toFixed(0)} MB`;
+    });
+
+    if (referenceAudio) {
+      referenceAudio.pause();
+      if (referenceAudio.dataset.url) {
+        URL.revokeObjectURL(referenceAudio.dataset.url);
+      }
+    }
+    const url = URL.createObjectURL(reference.blob);
+    referenceAudio = new Audio(url);
+    referenceAudio.dataset.url = url;
+    referenceAudio.onended = restore;
+    referenceAudio.onerror = restore;
+
+    label.textContent = 'Playing…';
+    await referenceAudio.play();
+  } catch (error) {
+    label.textContent = 'Reference unavailable right now';
+    setTimeout(restore, 2500);
+  }
 }
 
 // ---------------------------------------------------------------- analysis

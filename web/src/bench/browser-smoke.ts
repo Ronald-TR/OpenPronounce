@@ -98,6 +98,19 @@ async function main(): Promise<void> {
   console.log('transcript:', transcript?.trim());
   console.log('breakdown:', breakdown?.trim());
 
+  // "Hear the reference": piper synth + playback (voice already cached by the score step)
+  await page.click('#listen-btn');
+  await page.waitForFunction(
+    () => {
+      const label = document.querySelector('[data-role="listen.label"]')?.textContent ?? '';
+      return label === 'Playing…' || label === 'Reference unavailable right now';
+    },
+    undefined,
+    { timeout: 3 * 60_000 },
+  );
+  const listenLabel = await page.textContent('[data-role="listen.label"]');
+  console.log('listen button:', listenLabel?.trim());
+
   await page.screenshot({ path: path.join(SCREENSHOTS_DIR, 'app-browser.png'), fullPage: true });
   console.log('screenshot: web/tests/screenshots/app-browser.png');
 
@@ -106,8 +119,9 @@ async function main(): Promise<void> {
 
   const heardText = (heard ?? '').replace(/\s+/g, '');
   const scoreNumber = Number(score);
-  const ok = heardText.startsWith('aɪwʊdlaɪk') && phoneSpans.length >= 20 && scoreNumber > 75;
-  console.log(ok ? 'SMOKE TEST PASSED' : `SMOKE TEST FAILED (score: ${scoreNumber}, spans: ${phoneSpans.length})`);
+  const ok = heardText.startsWith('aɪwʊdlaɪk') && phoneSpans.length >= 20 && scoreNumber > 75
+    && listenLabel === 'Playing…';
+  console.log(ok ? 'SMOKE TEST PASSED' : `SMOKE TEST FAILED (score: ${scoreNumber}, spans: ${phoneSpans.length}, listen: ${listenLabel})`);
   if (errors.length) {
     console.log('errors seen:', errors.slice(0, 5));
   }
