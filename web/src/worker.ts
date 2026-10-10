@@ -11,21 +11,26 @@
 import { AutoProcessor, AutoTokenizer, Wav2Vec2ForCTC, env } from '@huggingface/transformers';
 import { createSession, type Device, type Dtype, type ModelProgress, type Session, type SessionInfo } from './core/session';
 import { createEmbedder, acousticDistance, type Embedder, type EmbedderDevice } from './core/embeddings';
-import { MODEL_DIR_IDS, resolveModels } from './core/config';
+import { MODEL_DIR_IDS, initModelsSource, resolveModels } from './core/config';
 
-// one global resolution for every model in this worker (phone, ASR, encoder)
-const models = resolveModels();
-env.allowLocalModels = models.allowLocalModels;
-env.localModelPath = models.localModelPath;
-env.remoteHost = models.remoteHost;
-env.remotePathTemplate = models.remotePathTemplate;
-if (models.allowLocalModels) {
-  // Chromium's Cache.put fails on the big local files ("Unexpected internal
-  // error"); local serving is instant anyway, so skip the cache entirely
-  env.useBrowserCache = false;
-}
+// one global resolution for every model in this worker (phone, ASR, encoder);
+// resolved asynchronously so the 's3' source can probe reachability and fall
+// back to the HF hub while upload/CORS are pending
+const modelsReady = (async () => {
+  await initModelsSource();
+  const models = resolveModels();
+  env.allowLocalModels = models.allowLocalModels;
+  env.localModelPath = models.localModelPath;
+  env.remoteHost = models.remoteHost;
+  env.remotePathTemplate = models.remotePathTemplate;
+  if (models.allowLocalModels) {
+    // Chromium's Cache.put fails on the big local files ("Unexpected internal
+    // error"); local serving is instant anyway, so skip the cache entirely
+    env.useBrowserCache = false;
+  }
+})();
 
-const ASR_MODEL_ID = models.asrModelId;
+const ASR_MODEL_ID = resolveModels().asrModelId;
 const ENCODER_PATH = MODEL_DIR_IDS.encoder;
 
 let session: Session | null = null;
@@ -51,6 +56,7 @@ const post = (message: unknown, transfer?: Transferable[]): void => {
 };
 
 self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
+  await modelsReady;
   const message = event.data;
   try {
     if (message.type === 'load') {

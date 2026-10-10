@@ -17,6 +17,30 @@ export type ModelsSource = 'hf' | 'local' | 's3';
 export const MODELS_SOURCE: ModelsSource =
   (import.meta.env.VITE_MODELS_SOURCE as ModelsSource | undefined) ?? 'local';
 
+/** The source actually in use ('s3' falls back to 'hf' until reachable). */
+let effectiveSource: ModelsSource = MODELS_SOURCE;
+
+/** Runtime probe for the 's3' source: upload + CORS still pending → HF. */
+export async function initModelsSource(): Promise<void> {
+  if (MODELS_SOURCE !== 's3') {
+    effectiveSource = MODELS_SOURCE;
+    return;
+  }
+  try {
+    const response = await fetch(`${S3_MODELS_HOST}/${MODEL_DIR_IDS.phones}/config.json`);
+    effectiveSource = response.ok ? 's3' : 'hf';
+  } catch {
+    effectiveSource = 'hf'; // network or CORS failure
+  }
+  if (effectiveSource !== MODELS_SOURCE) {
+    console.warn('[models] S3 unreachable (upload or CORS pending) — falling back to the HF hub');
+  }
+}
+
+export function currentModelsSource(): ModelsSource {
+  return effectiveSource;
+}
+
 export const S3_MODELS_HOST = 'https://meu-bucket-c1f5135e.s3.us-east-1.amazonaws.com';
 
 /** Folder names under models/ (also the S3 keys, one folder per model). */
@@ -39,7 +63,11 @@ const HF_HOST = 'https://huggingface.co';
 
 /** How transformers.js should resolve models in the current mode. */
 export function resolveModels(): ModelsResolution {
-  switch (MODELS_SOURCE) {
+  return resolveFor(effectiveSource);
+}
+
+function resolveFor(source: ModelsSource): ModelsResolution {
+  switch (source) {
     case 's3':
       return {
         allowLocalModels: false,
@@ -74,7 +102,7 @@ export function resolveModels(): ModelsResolution {
 /** URL of the phone recognizer vocabulary (fetched manually by session.ts). */
 export function phoneVocabUrl(): string {
   const resolution = resolveModels();
-  switch (MODELS_SOURCE) {
+  switch (currentModelsSource()) {
     case 'hf':
       return `${HF_HOST}/onnx-community/wav2vec2-lv-60-espeak-cv-ft-ONNX/resolve/main/vocab.json`;
     case 's3':

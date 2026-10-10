@@ -56,9 +56,10 @@ jobs:
         run: npm run build
         env:
           VITE_BASE: /${{ github.event.repository.name }}/
-          # flip to 's3' after the models are uploaded to the bucket and CORS
-          # is configured; 'hf' keeps the live site working meanwhile
-          VITE_MODELS_SOURCE: hf
+          # models are served from the project's S3 bucket; if the bucket is
+          # unreachable (upload or CORS pending) the app falls back to the
+          # HF hub automatically at runtime
+          VITE_MODELS_SOURCE: s3
 
       - uses: actions/upload-pages-artifact@v3
         with:
