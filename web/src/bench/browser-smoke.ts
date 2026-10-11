@@ -22,7 +22,16 @@ async function main(): Promise<void> {
   const url = server.resolvedUrls?.local?.[0] ?? 'http://localhost:5199/';
 
   await mkdir(SCREENSHOTS_DIR, { recursive: true });
-  const browser = await chromium.launch({ args: ['--disable-features=ServiceWorker'] });
+  // headed: headless Chromium exposes no WebGPU adapter, and the app now
+  // requires WebGPU — headed mode uses the real GPU on this machine
+  const browser = await chromium.launch({
+    headless: false,
+    args: [
+      '--enable-unsafe-webgpu',
+      '--use-angle=metal',
+      '--disable-features=ServiceWorker',
+    ],
+  });
   const page = await browser.newPage();
 
   const errors: string[] = [];
@@ -35,12 +44,14 @@ async function main(): Promise<void> {
     if (message.type() === 'error') {
       errors.push(`console: ${text}`);
       console.log('  [console.error]', text.slice(0, 300));
-    } else if (text.includes('[score inputs]')) {
+    } else if (text.startsWith('[pipeline]') || text.startsWith('[worker]') || text.includes('[score inputs]')) {
       console.log('  [page]', text);
     }
   });
   page.on('pageerror', () => { });
 
+  // A/B: disable audio enhancement to isolate its effect on the ASR
+  await page.addInitScript(() => localStorage.setItem('openpronounce.enhance', '0'));
   await page.goto(url);
   const isolated = await page.evaluate('self.crossOriginIsolated');
   console.log('crossOriginIsolated:', isolated);

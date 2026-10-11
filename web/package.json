@@ -6,13 +6,15 @@
   "description": "Client-side OpenPronounce spike: wav2vec2 phone recognition in the browser (transformers.js + ONNX Runtime Web)",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "npm run setup-ort && tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:browser": "tsx src/bench/browser-smoke.ts",
     "calibrate": "tsx src/bench/calibrate.ts",
-    "bench": "tsx src/bench/node-bench.ts"
+    "bench": "tsx src/bench/node-bench.ts",
+    "setup-ort": "mkdir -p public/ort && cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.mjs public/ort/ort-wasm-simd-threaded.jsep.mjs && cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm public/ort/ort-wasm-simd-threaded.jsep.wasm",
+    "postinstall": "npm run setup-ort"
   },
   "dependencies": {
     "@diffusionstudio/vits-web": "^1.0.3",

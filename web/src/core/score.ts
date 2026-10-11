@@ -30,7 +30,9 @@ export const ACOUSTIC_DISTANCE_GOOD_EN = 6.0;
 export const ACOUSTIC_DISTANCE_SPAN = ACOUSTIC_DISTANCE_BAD - ACOUSTIC_DISTANCE_GOOD_EN;
 
 // Calibrated on 500 speechocean762 utterances (benchmarks/): Spearman 0.65.
-export const SCORE_WEIGHTS = { acoustic: 0.3, phonemes: 0.4, words: 0.3 } as const;
+export const SCORE_WEIGHTS: { acoustic: number; phonemes: number; words: number } = {
+  acoustic: 0.3, phonemes: 0.4, words: 0.3,
+};
 
 /** Lower-case, strip and keep only letters, apostrophes and single spaces (speech.clean_transcription). */
 export function cleanTranscription(text: string): string {
@@ -62,26 +64,37 @@ export function wordErrorRate(expectedWords: string[], heardWords: string[]): nu
 export function computePronunciationScore(
   acousticDistance: number | null,
   phonemeErrorRate: number,
-  wordErrorRateValue: number,
+  wordErrorRateValue: number | null,
   lang = 'en',
 ): number {
   const clip = (x: number) => Math.min(100.0, Math.max(0.0, x));
   const phonemeScore = clip(100 * (1 - phonemeErrorRate));
-  const wordScore = clip(100 * (1 - wordErrorRateValue));
+  const wordScore = wordErrorRateValue === null ? null : clip(100 * (1 - wordErrorRateValue));
 
-  if (acousticDistance === null) {
-    const renormalized = (1 - SCORE_WEIGHTS.acoustic);
-    const finalScore =
-      (SCORE_WEIGHTS.phonemes / renormalized) * phonemeScore
-      + (SCORE_WEIGHTS.words / renormalized) * wordScore;
-    return Math.round(clip(finalScore) * 100) / 100;
+  // a missing term (encoder or transcription unavailable) drops its weight
+  // and the remaining weights renormalize to 1
+  let wAc = SCORE_WEIGHTS.acoustic;
+  let wPh = SCORE_WEIGHTS.phonemes;
+  let wWo = SCORE_WEIGHTS.words;
+  let acousticScore: number | null = null;
+  if (acousticDistance !== null) {
+    const good = ACOUSTIC_GOOD[lang] ?? ACOUSTIC_DISTANCE_GOOD_EN;
+    acousticScore = clip(100 * (1 - (acousticDistance - good) / ACOUSTIC_DISTANCE_SPAN));
+  } else {
+    wAc = 0;
+    wPh /= 1 - SCORE_WEIGHTS.acoustic;
+    wWo /= 1 - SCORE_WEIGHTS.acoustic;
+  }
+  if (wordScore === null) {
+    wWo = 0;
+    const rest = wAc + wPh;
+    wAc /= rest;
+    wPh /= rest;
   }
 
-  const good = ACOUSTIC_GOOD[lang] ?? ACOUSTIC_DISTANCE_GOOD_EN;
-  const acousticScore = clip(100 * (1 - (acousticDistance - good) / ACOUSTIC_DISTANCE_SPAN));
   const finalScore =
-    SCORE_WEIGHTS.acoustic * acousticScore
-    + SCORE_WEIGHTS.phonemes * phonemeScore
-    + SCORE_WEIGHTS.words * wordScore;
+    wAc * (acousticScore ?? 0)
+    + wPh * phonemeScore
+    + (wordScore === null ? 0 : wWo * wordScore);
   return Math.round(clip(finalScore) * 100) / 100;
 }

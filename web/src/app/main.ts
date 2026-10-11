@@ -6,12 +6,14 @@
  */
 import '../style.css';
 import { AudioRecorder } from './recorder';
-import { Pipeline, type AnalysisResult, type InferenceDevice } from './pipeline';
+import { Pipeline, dtypeForDevice, type AnalysisResult } from './pipeline';
 import type { WorkerProgress } from './worker-client';
 import { decodeTo16kMono } from '../core/audio';
 import { enhanceAudio } from '../core/enhance';
 import { synthesizeReference } from '../core/tts';
-import { MODELS, storageEstimate, clearStoredModels, storedPiperVoicesList } from './models';
+import { MODELS, modelDownloadStatus, storageEstimate, clearStoredModels, storedPiperVoicesList } from './models';
+import { webgpuSupport } from './webgpu';
+import { download as downloadPiperVoice } from '@diffusionstudio/vits-web';
 import { Viseme } from './viseme';
 import Chart from 'chart.js/auto';
 
@@ -32,7 +34,6 @@ const SPEECH_LANGS: Record<string, string> = {
 const MIC_STORAGE_KEY = 'openpronounce.micId';
 const AUTO_STOP_STORAGE_KEY = 'openpronounce.autoStop';
 const ENHANCE_STORAGE_KEY = 'openpronounce.enhance';
-const DEVICE_STORAGE_KEY = 'openpronounce.device';
 const SPEAK_SPEED_STORAGE_KEY = 'openpronounce.speakSpeed';
 const RING_LENGTH = 2 * Math.PI * 62;
 const COLORS = { good: '#10b981', mid: '#f59e0b', bad: '#ef4444' };
@@ -48,8 +49,8 @@ const state = {
   micId: localStorage.getItem(MIC_STORAGE_KEY) || null,
   autoStop: localStorage.getItem(AUTO_STOP_STORAGE_KEY) !== '0',
   enhance: localStorage.getItem(ENHANCE_STORAGE_KEY) !== '0',
-  device: ((localStorage.getItem(DEVICE_STORAGE_KEY) === 'webgpu' ? 'webgpu' : 'wasm') as InferenceDevice),
   speakSpeed: Number(localStorage.getItem(SPEAK_SPEED_STORAGE_KEY)) || 1,
+  webgpuSupported: null as boolean | null,
   blob: null as Blob | null,
   filename: null as string | null,
   needsConfirmation: false,
@@ -140,11 +141,11 @@ function init(): void {
   $('again-btn').addEventListener('click', resetForNewTake);
   $('replay-btn').addEventListener('click', () => ($('audio-player') as HTMLAudioElement).play().catch(() => { }));
 
-  void bootstrap();
+  void checkWebgpuAndBootstrap();
 }
 
 async function bootstrap(): Promise<void> {
-  setStatus('loading local AI models (~830 MB on the first visit)...');
+  setStatus('loading local AI models (int8 weights)...');
   const callbacks = {
     onStatus: (status: string) => {
       if (state.view === 'loading' || !state.ready) {
@@ -154,41 +155,50 @@ async function bootstrap(): Promise<void> {
     onProgress: (event: WorkerProgress) => trackDownload(event),
   };
   try {
-    pipelineReady = Pipeline.create(callbacks, { device: state.device });
+    pipelineReady = Pipeline.create(callbacks, {
+      device: 'webgpu',
+      dtype: dtypeForDevice('webgpu'),
+    });
     await pipelineReady;
     state.ready = true;
     setBusy(false);
     ($('mic-select-btn') as HTMLButtonElement).disabled = false;
     $('record-hint').textContent = 'Tap to record, then say the sentence';
+    void refreshModelStatuses();
     void refreshStorageInfo();
   } catch (error) {
-    if (state.device === 'webgpu') {
-      // WebGPU failed (unavailable, out of memory, driver): fall back to wasm once
-      console.warn('webgpu load failed, falling back to wasm', error);
-      state.device = 'wasm';
-      localStorage.setItem(DEVICE_STORAGE_KEY, 'wasm');
-      syncSettingsUi();
-      setStatus('WebGPU unavailable — falling back to wasm...');
-      try {
-        pipelineReady = Pipeline.create(callbacks, { device: 'wasm' as const });
-        await pipelineReady;
-        state.ready = true;
-        setBusy(false);
-        ($('mic-select-btn') as HTMLButtonElement).disabled = false;
-        $('record-hint').textContent = 'Tap to record, then say the sentence';
-        ($('device-note') as HTMLElement).textContent = 'WebGPU failed on this device; using wasm.';
-        void refreshStorageInfo();
-        return;
-      } catch (wasmError) {
-        error = wasmError;
-      }
-    }
-    $('record-hint').textContent = 'Could not load the local models.';
+    state.ready = false;
+    setBusy(false);
+    $('record-hint').textContent = 'WebGPU is required to run the models.';
     setStatus(`model load failed: ${error instanceof Error ? error.message : String(error)}`);
     setView('error');
     ($('error-message') as HTMLParagraphElement).textContent =
-      'The local AI models could not be loaded. Check your connection and reload the page.';
+      'The models could not be loaded on this browser\u2019s WebGPU. '
+      + 'Check hardware acceleration, update the browser and try \u201cCheck webgpu support\u201d again.';
+    void refreshModelStatuses();
   }
+}
+
+// ---------------------------------------------------------------- webgpu gate
+
+async function checkWebgpuAndBootstrap(): Promise<void> {
+  const resultEl = $('webgpu-result');
+  resultEl.textContent = 'checking…';
+  const support = await webgpuSupport();
+  state.webgpuSupported = support.supported;
+  resultEl.textContent = support.detail;
+  resultEl.className = 'text-xs ' + (support.supported ? 'text-emerald-600' : 'text-red-600');
+
+  if (!support.supported) {
+    // WebGPU is mandatory: keep the microphone locked and explain why
+    state.ready = false;
+    setBusy(false);
+    ($('mic-select-btn') as HTMLButtonElement).disabled = true;
+    $('record-hint').textContent = 'WebGPU is required to run the models — the microphone stays locked.';
+    setStatus(`WebGPU unavailable: ${support.detail}`);
+    return;
+  }
+  await bootstrap();
 }
 
 // ---------------------------------------------------------------- recording
@@ -883,9 +893,12 @@ function renderHeard(result: AnalysisResult): void {
   const t = result.timings;
   const acousticPart = result.acoustic
     ? `acoustic ${result.acoustic.meanPerStep.toFixed(2)}`
-    : 'acoustic n/a (no encoder on this deploy)';
+    : 'acoustic n/a';
+  const wordsPart = result.wordErrorRate === null
+    ? 'words n/a (no transcript)'
+    : `words ${Math.round((1 - result.wordErrorRate) * 100)} %`;
   $('breakdown').textContent =
-    `${acousticPart} · phones ${Math.round((1 - result.phones.phone_error_rate) * 100)} % · words ${Math.round((1 - result.wordErrorRate) * 100)} %`
+    `${acousticPart} · phones ${Math.round((1 - result.phones.phone_error_rate) * 100)} % · ${wordsPart}`
     + ` — ${('total ' + (t.totalMs / 1000).toFixed(1) + 's')}`;
 }
 
@@ -968,17 +981,8 @@ function setupSettingsBar(): void {
     applyCollapsed(body.classList.contains('hidden'));
   });
 
-  const deviceSelect = $('device-setting') as HTMLSelectElement;
-  deviceSelect.value = state.device;
-  deviceSelect.addEventListener('change', () => {
-    state.device = deviceSelect.value as InferenceDevice;
-    localStorage.setItem(DEVICE_STORAGE_KEY, state.device);
-    ($('device-note') as HTMLElement).textContent =
-      state.device === 'webgpu'
-        ? 'webgpu loads fp16 weights (~1.3 GB extra).'
-        : 'webgpu loads fp16 weights (~1.3 GB extra).';
-    // the worker models must be recreated; a reload applies the new device
-    window.location.reload();
+  ($('webgpu-check') as HTMLButtonElement).addEventListener('click', () => {
+    void checkWebgpuAndBootstrap();
   });
 
   const speedSelect = $('speak-speed-setting') as HTMLSelectElement;
@@ -987,10 +991,6 @@ function setupSettingsBar(): void {
     state.speakSpeed = Number(speedSelect.value) || 1;
     localStorage.setItem(SPEAK_SPEED_STORAGE_KEY, String(state.speakSpeed));
   });
-}
-
-function syncSettingsUi(): void {
-  ($('device-setting') as HTMLSelectElement).value = state.device;
 }
 
 // ---------------------------------------------------------------- examples & models panel
@@ -1021,12 +1021,23 @@ function setupModelsPanel(): void {
     const name = document.createElement('span');
     name.textContent = model.label;
     name.className = 'text-neutral-700 truncate';
+    const meta = document.createElement('span');
+    meta.className = 'flex items-center gap-2 shrink-0';
+    const status = document.createElement('span');
+    status.id = `model-status-${model.id}`;
+    status.textContent = 'checking…';
+    status.className = 'text-xs text-neutral-400';
     const size = document.createElement('span');
     size.textContent = `~${model.sizeMb} MB`;
-    size.className = 'text-xs text-neutral-400 shrink-0 tabular-nums';
-    item.append(name, size);
+    size.className = 'text-xs text-neutral-400 tabular-nums';
+    meta.append(status, size);
+    item.append(name, meta);
     list.appendChild(item);
   }
+
+  $('models-download').addEventListener('click', () => {
+    void downloadAllModels();
+  });
 
   $('models-clear').addEventListener('click', async () => {
     const button = $('models-clear') as HTMLButtonElement;
@@ -1038,9 +1049,80 @@ function setupModelsPanel(): void {
     } catch {
       button.textContent = 'Could not delete — try the browser settings.';
     }
+    void refreshModelStatuses();
     void refreshStorageInfo();
   });
 
+  void refreshModelStatuses();
+  void refreshStorageInfo();
+}
+
+/** Mark every model as downloaded (after 'Download all models' finishes). */
+function setAllModelStatusesDownloaded(): void {
+  for (const model of MODELS) {
+    const el = $(`model-status-${model.id}`);
+    if (el) {
+      el.textContent = '✓ downloaded';
+      el.className = 'text-xs text-emerald-600';
+    }
+  }
+}
+
+async function refreshModelStatuses(): Promise<void> {
+  const status = await modelDownloadStatus();
+  for (const [modelId, downloaded] of Object.entries(status)) {
+    const el = $(`model-status-${modelId}`);
+    if (!el) {
+      continue;
+    }
+    el.textContent = downloaded ? '✓ downloaded' : 'not downloaded';
+    el.className = 'text-xs ' + (downloaded ? 'text-emerald-600' : 'text-neutral-400');
+  }
+  // the button only makes sense while something is missing
+  const allDownloaded = Object.values(status).every(Boolean);
+  ($('models-download') as HTMLButtonElement).disabled = allDownloaded;
+  if (allDownloaded) {
+    ($('models-download') as HTMLButtonElement).textContent = 'All models downloaded';
+  }
+}
+
+/**
+ * Pre-download every model (weights are cached; the button is a no-op for
+ * whatever is already stored). The encoder + piper voice are the lazy ones.
+ */
+async function downloadAllModels(): Promise<void> {
+  const button = $('models-download') as HTMLButtonElement;
+  button.disabled = true;
+  button.textContent = 'Downloading…';
+  try {
+    // 1. phone + ASR load at bootstrap; warm the encoder explicitly
+    const currentPipeline = await pipelineReady!;
+    await currentPipeline.warmEncoder();
+
+    // 2. piper reference voice
+    await new Promise<void>((resolve, reject) => {
+      downloadPiperVoice('en_US-lessac-medium', (p) => {
+        trackDownload({
+          model: 'piper',
+          status: 'progress',
+          file: 'piper-voice.onnx',
+          loaded: p.loaded,
+          total: p.total,
+        });
+      }).then(() => {
+        trackDownload({ model: 'piper', status: 'done', file: 'piper-voice.onnx' });
+        resolve();
+      }).catch(reject);
+    });
+
+    button.textContent = 'Downloaded';
+    setAllModelStatusesDownloaded();
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = 'Download all models';
+    setStatus(`download failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  void refreshModelStatuses();
   void refreshStorageInfo();
 }
 

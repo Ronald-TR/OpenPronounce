@@ -23,3 +23,7 @@ web/tests/fixtures/bench-report.json
 web/tests/fixtures/heard.json
 web/tests/fixtures/calibration/wav/
 web/tests/fixtures/calibration/ref/
+.env.local
+
+# vendored non-JSEP ORT wasm (served for the wasm EP)
+web/public/ort/

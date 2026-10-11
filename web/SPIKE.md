@@ -251,3 +251,25 @@ Pages specifics handled here:
   models (phone recognizer, ASR, piper voice) download from the HF CDN. For a
   production deploy, publish the encoder ONNX to a CDN/HF repo and point
   `ENCODER_PATH`/`env.localModelPath` at it.
+
+## Known issue: browser word-transcription regression (open)
+
+Since some point after phase 4, the word-transcription model
+(wav2vec2-base-960h int8) outputs **all-blank logits in the browser**,
+zeroing the word term of the score. Extensively diagnosed:
+
+- identical model bytes (sha256 = HF original), identical normalized input
+- Node (onnxruntime-node, cpu) transcribes the same fixture correctly —
+  `I|WOULD|LIKE|A|CUP|OF|COFFEE|PLEASE`
+- browser (onnxruntime-web, wasm): 135/135 frames argmax to blank, in every
+  dtype (q8/fp16), binary (JSEP/non-JSEP), thread count, env configuration,
+  model source (HF/local/S3) and load order; enhancement is not involved
+- the phone recognizer (wav2vec2-lv-60-espeak, also int8) works in the same
+  worker/session — the regression is specific to this model on ORT-web
+
+Mitigation shipped: an empty transcript drops the word term and renormalizes
+the score over acoustic + phones (the breakdown shows `words n/a`).
+
+Next steps to investigate: pin/compare an older onnxruntime-web build,
+inspect the JSEP loader's int8 handling for base-960h, or switch the word
+term to a browser-native SpeechRecognition pass (privacy trade-off).

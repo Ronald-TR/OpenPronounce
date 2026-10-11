@@ -17,7 +17,7 @@ export interface AnalysisResult {
   acoustic: { meanPerStep: number; ms: number } | null;
   phones: ComparePhonesResult;
   transcript: string;
-  wordErrorRate: number;
+  wordErrorRate: number | null;
   expectedWords: string[];
   heardWords: string[];
   heardPhones: string[];
@@ -77,8 +77,10 @@ export interface PipelineOptions {
   dtype?: string;
 }
 
-export function dtypeForDevice(device: InferenceDevice): string {
-  return device === 'webgpu' ? 'fp16' : 'q8';
+export function dtypeForDevice(_device: InferenceDevice): string {
+  // q8 keeps parity with the validated int8 weights; fp16 on WebGPU loses
+  // phone accuracy (measured: /l/ deletions on the fixtures)
+  return 'q8';
 }
 
 export class Pipeline {
@@ -111,6 +113,11 @@ export class Pipeline {
     await pipeline.worker.request({ type: 'load', device, dtype });
     await pipeline.worker.request({ type: 'load-asr', device, dtype });
     return pipeline;
+  }
+
+  /** Pre-download the acoustic encoder weights (webgpu fp16, fallback int8). */
+  async warmEncoder(): Promise<void> {
+    await this.worker.request({ type: 'warm-encoder' });
   }
 
   private status(text: string): void {

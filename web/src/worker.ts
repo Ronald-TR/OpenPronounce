@@ -21,13 +21,9 @@ const modelsReady = (async () => {
   const models = resolveModels();
   env.allowLocalModels = models.allowLocalModels;
   env.localModelPath = models.localModelPath;
-  env.remoteHost = models.remoteHost;
-  env.remotePathTemplate = models.remotePathTemplate;
-  if (models.allowLocalModels) {
-    // Chromium's Cache.put fails on the big local files ("Unexpected internal
-    // error"); local serving is instant anyway, so skip the cache entirely
-    env.useBrowserCache = false;
-  }
+  // BISECT A: replicate the phase-2 env exactly (no remote overrides,
+  // browser cache on) — if the transcript recovers, one of the removed
+  // lines was breaking local loads
 })();
 
 const ASR_MODEL_ID = resolveModels().asrModelId;
@@ -40,6 +36,26 @@ let asr: {
   idToToken: string[];
 } | null = null;
 let embedder: Embedder | null = null;
+
+async function ensureEmbedder(): Promise<Embedder> {
+  if (embedder) {
+    return embedder;
+  }
+  // accuracy-first: the validated wasm int8 path (see the load handler note)
+  const attempts: Array<[EmbedderDevice, Dtype]> = [['wasm', 'q8']];
+  let lastError: unknown = null;
+  for (const [device, dtype] of attempts) {
+    try {
+      embedder = await createEmbedder(ENCODER_PATH, dtype, device, (progress) => {
+        post({ type: 'progress', model: 'encoder', payload: progress });
+      });
+      return embedder;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError ?? new Error('encoder could not be loaded');
+}
 // the acoustic encoder follows the device/dtype chosen for the phone model
 let activeDevice: Device = 'wasm';
 let activeDtype: Dtype = 'q8';
@@ -49,7 +65,8 @@ type InferMessage = { type: 'infer'; audio: Float32Array; requestId: number };
 type LoadAsrMessage = { type: 'load-asr'; device?: Device; dtype?: Dtype; requestId?: number };
 type TranscribeMessage = { type: 'transcribe'; audio: Float32Array; requestId: number };
 type AcousticMessage = { type: 'acoustic'; learner: Float32Array; reference: Float32Array; requestId: number };
-type WorkerMessage = LoadMessage | InferMessage | LoadAsrMessage | TranscribeMessage | AcousticMessage;
+type WarmEncoderMessage = { type: 'warm-encoder'; requestId?: number };
+type WorkerMessage = LoadMessage | InferMessage | LoadAsrMessage | TranscribeMessage | AcousticMessage | WarmEncoderMessage;
 
 const post = (message: unknown, transfer?: Transferable[]): void => {
   (self as unknown as Worker).postMessage(message, transfer ?? []);
@@ -62,13 +79,31 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
     if (message.type === 'load') {
       activeDevice = message.device;
       activeDtype = message.dtype;
-      session = await createSession({
-        device: message.device,
-        dtype: message.dtype,
-        onProgress: (progress: ModelProgress) => {
-          post({ type: 'progress', model: 'phones', payload: progress });
-        },
-      });
+      // accuracy-first: the WebGPU kernels for these wav2vec2 variants are
+      // unusable (int8 -> empty output; fp16 -> dropped phones), so the
+      // validated wasm int8 path is the engine. WebGPU remains the browser
+      // capability requirement enforced by the app gate.
+      const attempts: Array<[Device, Dtype]> = [['wasm', 'q8']];
+      let lastError: unknown = null;
+      let loaded = false;
+      for (const [device, dtype] of attempts) {
+        try {
+          session = await createSession({
+            device,
+            dtype,
+            onProgress: (progress: ModelProgress) => {
+              post({ type: 'progress', model: 'phones', payload: progress });
+            },
+          });
+          loaded = true;
+          break;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      if (!loaded || !session) {
+        throw lastError ?? new Error('phone model could not be loaded');
+      }
       const info: SessionInfo = session.info;
       post({ type: 'ready', requestId: message.requestId, payload: info });
       return;
@@ -126,6 +161,7 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
       const logits = output.logits;
       const [, frames, vocabSize] = logits.dims as [number, number, number];
       const data = logits.data as Float32Array;
+
       let transcript = '';
       let previousId = -1;
       for (let frame = 0; frame < frames; frame++) {
@@ -144,37 +180,25 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
         }
         previousId = best;
       }
+
       // the 960h vocab marks word boundaries with '|'
       transcript = transcript.replace(/\|/g, ' ');
       post({ type: 'transcript', requestId: message.requestId, transcript });
       return;
     }
+    if (message.type === 'warm-encoder') {
+      await ensureEmbedder();
+      post({ type: 'encoder-ready', requestId: message.requestId });
+      return;
+    }
+
     if (message.type === 'acoustic') {
       // the encoder lives in this worker too: a single ORT runtime keeps
       // memory and thread pressure under control; its weights come from S3
       // (createEmbedder redirects transformers.js for this load only)
-      if (!embedder) {
-        // graceful degradation: webgpu fp16 -> webgpu int8 -> wasm int8
-        const attempts: Array<[EmbedderDevice, Dtype]> = activeDevice === 'webgpu'
-          ? [['webgpu', 'fp16'], ['webgpu', 'q8'], ['wasm', 'q8']]
-          : [['wasm', 'q8']];
-        let lastError: unknown = null;
-        for (const [device, dtype] of attempts) {
-          try {
-            embedder = await createEmbedder(ENCODER_PATH, dtype, device, (progress) => {
-              post({ type: 'progress', model: 'encoder', payload: progress });
-            });
-            break;
-          } catch (error) {
-            lastError = error;
-          }
-        }
-        if (!embedder) {
-          throw lastError ?? new Error('encoder could not be loaded');
-        }
-      }
-      const learnerEmbedding = await embedder.embed(message.learner);
-      const referenceEmbedding = await embedder.embed(message.reference);
+      const activeEmbedder = await ensureEmbedder();
+      const learnerEmbedding = await activeEmbedder.embed(message.learner);
+      const referenceEmbedding = await activeEmbedder.embed(message.reference);
       const acoustic = acousticDistance(learnerEmbedding, referenceEmbedding);
       post({
         type: 'acoustic-result',
